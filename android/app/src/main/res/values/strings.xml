@@ -2,11 +2,14 @@
 <resources>
     <string name="app_name">Фит дневник</string>
     <string name="update_title">Нова верзија</string>
-    <string name="update_message">Фит дневник %1$s је спреман. Преузми га и отвори фајл да ажурираш. Подаци остају на месту.</string>
-    <string name="update_download">Преузми</string>
+    <string name="update_message">Нова верзија %1$s је спремна (сада имаш %2$s). Да ли желиш да ажурираш апликацију сада? Преузми фајл и отвори га да се инсталира. Подаци остају на месту.</string>
+    <string name="update_download">Ажурирај сада</string>
     <string name="update_later">Касније</string>
     <string name="no_file_app">Нема апликације за чување фајлова</string>
     <string name="backup_saved">Бекап је сачуван</string>
     <string name="backup_failed">Бекап није сачуван</string>
     <string name="scanner_unavailable">Скенер није доступан, упиши бар-код ручно</string>
+    <string name="update_checking">Проверавам да ли има нова верзија…</string>
+    <string name="update_none">Имаш најновију верзију (%1$s).</string>
+    <string name="update_failed">Провера није успела. Провери интернет и покушај поново.</string>
 </resources>

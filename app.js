@@ -385,6 +385,10 @@ function renderToday() {
       <div class="btnrow"><button class="btn pos" data-ryes="${r.id}">${t('Да')}</button><button class="btn" data-rno="${r.id}">${t('Не')}</button></div></div>`;
   }
 
+  // Тренинзи који нису у плану за данас (нпр. плес померен на други дан) могу да се додају једним тапом.
+  const extra = S.routines.filter(r => !routinesOn(k).includes(r) && routineState(k, r) !== 'done');
+  if (extra.length) h += `<div class="chips" style="margin:4px 0 12px;align-items:center"><span class="muted small">${t('Још данас:')}</span>${extra.map(r => `<button class="chip" data-ryes="${r.id}">+ ${esc(r.name)}</button>`).join('')}</div>`;
+
   const wgoal = S.profile.water || 2250;
   h += `<div class="tiles">
     <button class="tile" data-act="steps"><span class="tl">👟 ${t('Кораци')}</span><span class="tv num">${c.d.steps ? fmt(c.d.steps) : '—'}</span>
@@ -1247,6 +1251,12 @@ function renderSettings() {
     ${t('<b>Биланс</b> = унос − (мировање + кораци + вежбе). 7.700 kcal ≈ 1 kg масти.')}<br>
     ${t('Све су то процене, а тачније постају што редовније уносиш.')}</p></div>
 
+  <div class="card"><div class="card-head"><h2>📲 ${t('Апликација')}</h2></div>
+    ${NATIVE && window.FitAndroid.getVersion ? `<div class="muted small" style="margin-bottom:10px">${t('Верзија {a}', { a: esc(window.FitAndroid.getVersion()) })}</div>
+    <button class="btn block" data-s="update">${t('Провери да ли има ажурирање')}</button>`
+    : `<div class="muted small">${t('Ажурирање се проверава у Android апликацији.')}</div>`}
+  </div>
+
   <button class="btn danger block" data-s="wipe" style="margin:8px 0 20px">${t('Обриши све податке')}</button>
   <div class="faint tiny" style="text-align:center;margin-bottom:20px">${t('Фит дневник · подаци остају само на овом уређају')}</div>`;
   $('#view').innerHTML = L(h);
@@ -1265,6 +1275,7 @@ $('#view').addEventListener('click', e => {
     case 'import': return $('#impf').click();
     case 'profile': return profileSheet();
     case 'addr': return routineSheet();
+    case 'update': return window.FitAndroid.checkUpdate();
     case 'wipe': return ask(t('Обрисати СВЕ податке (дане, храну, рецепте, подешавања)? Ово не може да се врати, осим из бекапа.'), t('Обриши све'), () =>
       ask(t('Сигурно? Последња провера.'), t('Да, обриши'), () => { const l = lang(); S = defaults(); S.settings.lang = l; save(); ui.date = todayKey(); ui.tab = 'today'; render(); onboarding(); }));
   }

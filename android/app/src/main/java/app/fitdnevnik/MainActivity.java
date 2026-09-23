@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) webView.restoreState(savedInstanceState);
         else webView.loadUrl(START_URL);
 
-        if (savedInstanceState == null) checkForUpdate();
+        if (savedInstanceState == null) checkForUpdate(false);
     }
 
     /* ---------- update check ---------- */
@@ -122,13 +122,15 @@ public class MainActivity extends Activity {
 
     /**
      * Looks up the latest GitHub Release (tagged v1.0.<versionCode>) and offers to download it
-     * when it is newer than this install. Silent when offline or on any error.
+     * when it is newer than this install. The automatic check runs at most twice a day and is
+     * silent when offline; a manual check (button in Settings) always runs and reports the result.
      */
-    private void checkForUpdate() {
+    private void checkForUpdate(final boolean manual) {
         final SharedPreferences prefs = getSharedPreferences("update", MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (now - prefs.getLong("lastCheck", 0) < UPDATE_CHECK_INTERVAL) return;
+        if (!manual && now - prefs.getLong("lastCheck", 0) < UPDATE_CHECK_INTERVAL) return;
         prefs.edit().putLong("lastCheck", now).apply();
+        if (manual) Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             try {
@@ -137,7 +139,7 @@ public class MainActivity extends Activity {
                 c.setConnectTimeout(8000);
                 c.setReadTimeout(8000);
                 c.setRequestProperty("Accept", "application/vnd.github+json");
-                if (c.getResponseCode() != 200) return;
+                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
                 String body;
                 try (InputStream in = c.getInputStream()) {
                     ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -147,12 +149,15 @@ public class MainActivity extends Activity {
                 }
                 String tag = new JSONObject(body).optString("tag_name", "");
                 int dot = tag.lastIndexOf('.');
-                if (dot < 0) return;
+                if (dot < 0) throw new Exception("Unexpected tag " + tag);
                 final long latest = Long.parseLong(tag.substring(dot + 1));
                 final String name = tag.startsWith("v") ? tag.substring(1) : tag;
                 if (latest > installedVersionCode()) runOnUiThread(() -> showUpdateDialog(name));
-            } catch (Exception ignored) {
-                // No network, rate limit or unexpected response: try again next time.
+                else if (manual) runOnUiThread(() -> Toast.makeText(this,
+                        getString(R.string.update_none, BuildConfig.VERSION_NAME), Toast.LENGTH_LONG).show());
+            } catch (Exception e) {
+                // No network, rate limit or unexpected response: the automatic check tries again next time.
+                if (manual) runOnUiThread(() -> Toast.makeText(this, R.string.update_failed, Toast.LENGTH_LONG).show());
             }
         }).start();
     }
@@ -166,7 +171,7 @@ public class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle(R.string.update_title)
-                .setMessage(getString(R.string.update_message, version))
+                .setMessage(getString(R.string.update_message, version, BuildConfig.VERSION_NAME))
                 .setPositiveButton(R.string.update_download, (d, w) -> {
                     Uri apk = Uri.parse("https://github.com/" + BuildConfig.UPDATE_REPO
                             + "/releases/latest/download/fit-dnevnik.apk");
@@ -181,6 +186,18 @@ public class MainActivity extends Activity {
 
     /** Methods index.html calls through window.FitAndroid. */
     private class Bridge {
+        /** Installed version, shown in Settings. */
+        @JavascriptInterface
+        public String getVersion() {
+            return BuildConfig.VERSION_NAME;
+        }
+
+        /** "Check for updates" button in Settings. */
+        @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(() -> checkForUpdate(true));
+        }
+
         /** Opens Google's barcode scanner; the result goes to window.onBarcode(code or null). */
         @JavascriptInterface
         public void scanBarcode() {
