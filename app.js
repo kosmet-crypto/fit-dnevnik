@@ -379,8 +379,10 @@ function renderToday() {
       h += `<div class="row"><div class="grow"><b class="faint">${esc(r.name)}</b><span>${t('прескочено')}</span></div><button class="btn sm ghost" data-unskip="${r.id}">${t('Врати назад')}</button></div>`;
       continue;
     }
-    h += `<div class="routine"><div class="rt"><div><b>${esc(r.name)}</b><div class="muted small">${t('{a} мин', { a: r.min })} · ≈ ${fmt(actKcal(r.met, r.min, c.w))} kcal</div></div><span class="pill">${t('план')}</span></div>
-      <div class="btnrow"><button class="btn pos sm" data-rdone="${r.id}">✓ ${t('Урадила')}</button><button class="btn sm" data-rshort="${r.id}">${t('Скраћено')}</button><button class="btn sm ghost" data-rskip="${r.id}">${t('Прескочи')}</button></div></div>`;
+    // Ништа се не уписује само: она потврди „Да“ (па упише минуте) или „Не“.
+    h += `<div class="routine"><div class="rt"><div><b>${esc(r.name)}</b><div class="muted small">${t('план: {a} мин', { a: r.min })} · ≈ ${fmt(actKcal(r.met, r.min, c.w))} kcal</div></div></div>
+      <div>${t('Да ли си одрадила ову вежбу?')}</div>
+      <div class="btnrow"><button class="btn pos" data-ryes="${r.id}">${t('Да')}</button><button class="btn" data-rno="${r.id}">${t('Не')}</button></div></div>`;
   }
 
   const wgoal = S.profile.water || 2250;
@@ -451,9 +453,8 @@ $('#view').addEventListener('click', e => {
     day(todayKey()).meals.push({ ...JSON.parse(JSON.stringify(m)), id: uid(), time: nowTime() });
     save(); toast(t('Оброк је додат у данашњи дан')); return;
   }
-  if (ds.rdone) { const r = S.routines.find(x => x.id === ds.rdone); addRoutineAct(k, r, r.min, false); return; }
-  if (ds.rshort) { const r = S.routines.find(x => x.id === ds.rshort); return actSheet(k, null, r); }
-  if (ds.rskip) { day(k).skip.push(ds.rskip); save(); render(); return; }
+  if (ds.ryes) { const r = S.routines.find(x => x.id === ds.ryes); return actSheet(k, null, r); }
+  if (ds.rno) { day(k).skip.push(ds.rno); save(); render(); return; }
   if (ds.unskip) { const d = day(k); d.skip = d.skip.filter(x => x !== ds.unskip); save(); render(); return; }
   if (ds.water) {
     const d = day(k); d.water = Math.max(0, (d.water || 0) + (+ds.water) * (S.profile.glass || 250));
@@ -472,12 +473,6 @@ $('#view').addEventListener('change', e => {
   if (e.target.id === 'daynote') { day(ui.date).note = e.target.value; save(); }
 });
 
-function addRoutineAct(k, r, min, short) {
-  const w = weightOn(k);
-  day(k).acts.push({ id: uid(), rid: r.id, name: r.name, met: r.met, min, int: 1, short, kcal: Math.round(actKcal(r.met, min, w)) });
-  save(); render();
-  if (!short) toast(t('Браво! 💪'));
-}
 
 /* ================= листови (sheets) ================= */
 const stack = [];
@@ -940,9 +935,9 @@ function actSheet(k, actId, routine) {
   const ex = actId ? d.acts.find(a => a.id === actId) : null;
   const w = weightOn(k);
   const a = ex ? { ...ex } : routine
-    ? { id: uid(), rid: routine.id, name: routine.name, met: routine.met, min: Math.round(routine.min / 2), int: 1, short: true }
+    ? { id: uid(), rid: routine.id, name: routine.name, met: routine.met, min: routine.min, int: 1 }
     : { id: uid(), name: ACTS[0]?.name || 'Вежбе', met: ACTS[0]?.met || 3.5, min: 30, int: 1 };
-  const sh = openSheet(ex ? t('Измени активност') : routine ? t('Скраћени тренинг') : t('Нова активност'), `
+  const sh = openSheet(ex ? t('Измени активност') : routine ? t('Колико минута?') : t('Нова активност'), `
     ${routine || a.rid ? `<div class="note"><b>${esc(actName(a))}</b></div>` : `<label class="f">${t('Активност')}</label><select id="as">${ACTS.map((x, i) => `<option value="${i}" ${x.name === a.name ? 'selected' : ''}>${esc(t(x.name))}</option>`).join('')}</select>`}
     <label class="f">${t('Трајање (минута)')}</label><input type="text" inputmode="numeric" id="am" value="${a.min}">
     <div class="chips" style="margin-top:8px">${[10, 20, 30, 40, 60, 90].map(m => `<button class="chip" data-m="${m}">${m}</button>`).join('')}</div>
@@ -969,9 +964,13 @@ function actSheet(k, actId, routine) {
   $('#aok', sh).onclick = () => {
     upd();
     if (!(a.min > 0)) return toast(t('Упиши трајање'));
+    // Краће од плана се бележи као „скраћено“.
+    const plan = a.rid && S.routines.find(r => r.id === a.rid);
+    if (plan) a.short = a.min < plan.min;
     const i = d.acts.findIndex(x => x.id === a.id);
     if (i >= 0) d.acts[i] = a; else d.acts.push(a);
     save(); closeSheet(); render();
+    if (routine) toast(t('Браво! 💪'));
   };
 }
 function stepsSheet(k) {
