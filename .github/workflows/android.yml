@@ -3,9 +3,9 @@ name: Android APK
 on:
   push:
     branches: [main]
-    paths: ['index.html', 'foods.js', 'android/**', '.github/workflows/android.yml']
+    paths: ['index.html', 'foods.js', 'i18n.js', 'app.js', 'android/**', '.github/workflows/android.yml']
   pull_request:
-    paths: ['index.html', 'foods.js', 'android/**', '.github/workflows/android.yml']
+    paths: ['index.html', 'foods.js', 'i18n.js', 'app.js', 'android/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:

@@ -165,9 +165,9 @@ public class MainActivity extends Activity {
     private void showUpdateDialog(String version) {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
-                .setTitle("Нова верзија")
-                .setMessage("Фит дневник " + version + " је спреман. Преузми га и отвори фајл да ажурираш. Подаци остају на месту.")
-                .setPositiveButton("Преузми", (d, w) -> {
+                .setTitle(R.string.update_title)
+                .setMessage(getString(R.string.update_message, version))
+                .setPositiveButton(R.string.update_download, (d, w) -> {
                     Uri apk = Uri.parse("https://github.com/" + BuildConfig.UPDATE_REPO
                             + "/releases/latest/download/fit-dnevnik.apk");
                     try {
@@ -175,7 +175,7 @@ public class MainActivity extends Activity {
                     } catch (ActivityNotFoundException ignored) {
                     }
                 })
-                .setNegativeButton("Касније", null)
+                .setNegativeButton(R.string.update_later, null)
                 .show();
     }
 
@@ -190,7 +190,7 @@ public class MainActivity extends Activity {
                         .addOnSuccessListener(b -> sendBarcode(b.getRawValue()))
                         .addOnCanceledListener(() -> sendBarcode(null))
                         .addOnFailureListener(e -> {
-                            Toast.makeText(MainActivity.this, "Скенер није доступан, упиши бар-код ручно", Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, R.string.scanner_unavailable, Toast.LENGTH_LONG).show();
                             sendBarcode(null);
                         });
             });
@@ -209,7 +209,7 @@ public class MainActivity extends Activity {
                     startActivityForResult(i, REQ_SAVE_FILE);
                 } catch (ActivityNotFoundException e) {
                     pendingSaveText = null;
-                    Toast.makeText(MainActivity.this, "Нема апликације за чување фајлова", Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, R.string.no_file_app, Toast.LENGTH_LONG).show();
                 }
             });
         }
@@ -234,17 +234,19 @@ public class MainActivity extends Activity {
             if (uri == null || text == null) return;
             try (OutputStream out = getContentResolver().openOutputStream(uri)) {
                 out.write(text.getBytes(StandardCharsets.UTF_8));
-                Toast.makeText(this, "Бекап је сачуван", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.backup_saved, Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "Бекап није сачуван", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, R.string.backup_failed, Toast.LENGTH_LONG).show();
             }
         }
     }
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        // The page closes an open sheet or returns to the Day tab; otherwise the app exits.
+        webView.evaluateJavascript("!!(window.fitBack && window.fitBack())", handled -> {
+            if (!"true".equals(handled)) finish();
+        });
     }
 
     @Override

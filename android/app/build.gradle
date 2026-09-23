@@ -6,7 +6,7 @@ plugins {
 def webRoot = rootProject.file('..')
 tasks.register('copyWebApp', Copy) {
     from(webRoot) {
-        include 'index.html', 'foods.js'
+        include 'index.html', 'foods.js', 'i18n.js', 'app.js'
     }
     into 'src/main/assets/www'
 }
