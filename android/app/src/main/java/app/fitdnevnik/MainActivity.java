@@ -1,14 +1,23 @@
 package app.fitdnevnik;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.health.connect.AggregateRecordsRequest;
+import android.health.connect.AggregateRecordsResponse;
+import android.health.connect.HealthConnectException;
+import android.health.connect.HealthConnectManager;
+import android.health.connect.TimeInstantRangeFilter;
+import android.health.connect.datatypes.StepsRecord;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.OutcomeReceiver;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -32,6 +41,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 /**
  * Hosts the Fit dnevnik web app (bundled in assets/www) in a full-screen WebView.
@@ -44,10 +56,13 @@ public class MainActivity extends Activity {
     private static final String START_URL = "https://" + HOST + "/assets/www/index.html";
     private static final int REQ_PICK_FILE = 1;
     private static final int REQ_SAVE_FILE = 2;
+    private static final int REQ_STEPS = 3;
+    private static final String READ_STEPS = "android.permission.health.READ_STEPS";
 
     private WebView webView;
     private ValueCallback<Uri[]> pendingPick;
     private String pendingSaveText;
+    private int pendingStepsDays;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -184,8 +199,88 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    /* ---------- steps from Health Connect (built into Android 14+) ---------- */
+
+    private boolean stepsGranted() {
+        return checkSelfPermission(READ_STEPS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * Reads the total steps of each of the last {@code days} days (today up to now) and passes
+     * {"yyyy-mm-dd": steps} to window.onSteps(data, error). Health Connect itself merges the
+     * sources (phone, Google Fit, Samsung Health, watch) without counting steps twice.
+     */
+    @TargetApi(34)
+    private void readSteps(int days) {
+        HealthConnectManager hc = getSystemService(HealthConnectManager.class);
+        if (hc == null) { sendSteps(null, "unsupported"); return; }
+        final JSONObject out = new JSONObject();
+        final int[] left = {days};
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate today = LocalDate.now(zone);
+        for (int i = 0; i < days; i++) {
+            final LocalDate d = today.minusDays(i);
+            Instant start = d.atStartOfDay(zone).toInstant();
+            Instant end = i == 0 ? Instant.now() : d.plusDays(1).atStartOfDay(zone).toInstant();
+            AggregateRecordsRequest<Long> req = new AggregateRecordsRequest.Builder<Long>(
+                    new TimeInstantRangeFilter.Builder().setStartTime(start).setEndTime(end).build())
+                    .addAggregationType(StepsRecord.STEPS_COUNT_TOTAL)
+                    .build();
+            hc.aggregate(req, getMainExecutor(), new OutcomeReceiver<AggregateRecordsResponse<Long>, HealthConnectException>() {
+                @Override
+                public void onResult(AggregateRecordsResponse<Long> r) {
+                    Long v = r.get(StepsRecord.STEPS_COUNT_TOTAL);
+                    try {
+                        if (v != null && v > 0) out.put(d.toString(), v);
+                    } catch (Exception ignored) {
+                    }
+                    if (--left[0] == 0) sendSteps(out, null);
+                }
+
+                @Override
+                public void onError(HealthConnectException e) {
+                    if (--left[0] == 0) sendSteps(out, out.length() == 0 ? "error" : null);
+                }
+            });
+        }
+    }
+
+    private void sendSteps(JSONObject data, String error) {
+        String js = "window.onSteps && window.onSteps(" + (data == null ? "null" : data.toString()) + ","
+                + (error == null ? "null" : JSONObject.quote(error)) + ")";
+        webView.evaluateJavascript(js, null);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != REQ_STEPS) return;
+        if (Build.VERSION.SDK_INT >= 34 && stepsGranted()) readSteps(pendingStepsDays);
+        else sendSteps(null, "denied");
+    }
+
     /** Methods index.html calls through window.FitAndroid. */
     private class Bridge {
+        /** "unsupported" (Android 13 or older), "granted" or "available" (not allowed yet). */
+        @JavascriptInterface
+        public String stepsStatus() {
+            if (Build.VERSION.SDK_INT < 34) return "unsupported";
+            return stepsGranted() ? "granted" : "available";
+        }
+
+        /** Reads steps; asks for permission first when {@code ask} is true and it is missing. */
+        @JavascriptInterface
+        public void syncSteps(final int days, final boolean ask) {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT < 34) { sendSteps(null, "unsupported"); return; }
+                int n = Math.max(1, Math.min(days, 60));
+                if (stepsGranted()) { readSteps(n); return; }
+                if (!ask) { sendSteps(null, "noperm"); return; }
+                pendingStepsDays = n;
+                requestPermissions(new String[]{READ_STEPS}, REQ_STEPS);
+            });
+        }
+
         /** Installed version, shown in Settings. */
         @JavascriptInterface
         public String getVersion() {

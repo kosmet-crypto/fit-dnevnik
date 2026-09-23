@@ -399,7 +399,7 @@ function renderToday() {
   const wgoal = S.profile.water || 2250;
   h += `<div class="tiles">
     <button class="tile" data-act="steps"><span class="tl">👟 ${t('Кораци')}</span><span class="tv num">${c.d.steps ? fmt(c.d.steps) : '—'}</span>
-      <span class="ts">${c.d.steps ? '≈ ' + fmt(c.st) + ' kcal' : t('тапни да упишеш')}</span></button>
+      <span class="ts">${c.d.steps ? (c.d.stepsSrc === 'hc' ? '📱 ' : '') + '≈ ' + fmt(c.st) + ' kcal' : t('тапни да упишеш')}</span></button>
     <div class="tile"><span class="tl">💧 ${t('Вода')}</span><span class="tv num">${fmt(c.water / 1000, 2)} L</span>
       <div class="bar"><i style="width:${Math.min(100, c.water / wgoal * 100)}%;background:var(--water)"></i></div>
       <div class="water-ctrl"><button data-water="-1" aria-label="${t('Мање')}">−</button><span class="ts" style="flex:1;text-align:center">${S.profile.glass || 250} ml</span><button data-water="1" aria-label="${t('Више')}">+</button></div></div>
@@ -1004,13 +1004,20 @@ function stepsSheet(k) {
   const d = peek(k);
   const sh = openSheet(t('Кораци'), `<label class="f">${t('Колико корака данас (са телефона/сата)')}</label>
     <input type="text" inputmode="numeric" id="sv" value="${d?.steps || ''}" placeholder="${t('нпр. 8300')}">
-    <div class="note">${t('Уноси укупан број корака за дан. Ако си ходала као посебну вежбу, немој је додатно уписивати у активности, јер су кораци већ урачунати.')}</div>`,
+    <div class="note">${t('Уноси укупан број корака за дан. Ако си ходала као посебну вежбу, немој је додатно уписивати у активности, јер су кораци већ урачунати.')}</div>
+    ${d?.stepsSrc === 'hc' ? `<div class="note">📱 ${t('Овај број је учитан са телефона. Ако га промениш, важи твој број. Обриши поље да се поново учитава са телефона.')}</div>` : ''}
+    ${stepsStatus() === 'granted' ? `<button class="btn block" id="shc">📱 ${t('Учитај са телефона')}</button>` : ''}`,
     `<button class="btn" data-close>${t('Откажи')}</button><button class="btn primary" id="sok">${t('Сачувај')}</button>`);
   const inp = $('#sv', sh); setTimeout(() => inp.focus(), 250);
   $('#sok', sh).onclick = () => {
     const v = parseInt(String(inp.value).replace(/[^\d]/g, ''), 10);
-    day(k).steps = v > 0 ? v : null; save(); closeSheet(); render();
+    const dd = day(k);
+    if (v > 0 && v !== dd.steps) { dd.steps = v; dd.stepsSrc = 'manual'; }
+    else if (!(v > 0)) { dd.steps = null; delete dd.stepsSrc; }
+    save(); closeSheet(); render();
   };
+  const hc = $('#shc', sh);
+  if (hc) hc.onclick = () => { const dd = day(k); if (dd.stepsSrc === 'manual') delete dd.stepsSrc; closeSheet(); syncSteps(true); };
 }
 function weightSheet(k) {
   const d = peek(k);
@@ -1235,6 +1242,14 @@ function renderSettings() {
   const h = `
   <div class="card"><div class="card-head"><h2>🌍 ${t('Језик')}</h2></div>${langChips()}</div>
 
+  <div class="card"><div class="card-head"><h2>📲 ${t('Апликација')}</h2></div>
+    ${NATIVE && window.FitAndroid.getVersion ? `<div class="muted small" style="margin-bottom:10px">${t('Верзија {a}', { a: esc(window.FitAndroid.getVersion()) })}</div>
+    <button class="btn block" data-s="update">${t('Провери да ли има ажурирање')}</button>`
+    : `<div class="muted small">${t('Ажурирање се проверава у Android апликацији.')}</div>`}
+  </div>
+
+${stepsCard()}
+
   <div class="card"><div class="card-head"><h2>💾 ${t('Бекап')}</h2></div>
     <p class="muted small" style="margin:0 0 10px">${t('Сви подаци су само на овом телефону. Бекап их чува у фајл који можеш да пошаљеш себи (Viber, мејл, Drive) и вратиш на новом телефону.')}</p>
     <div class="grid2"><button class="btn primary" data-s="export">${t('Сачувај бекап')}</button><button class="btn" data-s="import">${t('Врати из бекапа')}</button></div>
@@ -1274,15 +1289,24 @@ function renderSettings() {
     ${t('<b>Биланс</b> = унос − (мировање + кораци + вежбе). 7.700 kcal ≈ 1 kg масти.')}<br>
     ${t('Све су то процене, а тачније постају што редовније уносиш.')}</p></div>
 
-  <div class="card"><div class="card-head"><h2>📲 ${t('Апликација')}</h2></div>
-    ${NATIVE && window.FitAndroid.getVersion ? `<div class="muted small" style="margin-bottom:10px">${t('Верзија {a}', { a: esc(window.FitAndroid.getVersion()) })}</div>
-    <button class="btn block" data-s="update">${t('Провери да ли има ажурирање')}</button>`
-    : `<div class="muted small">${t('Ажурирање се проверава у Android апликацији.')}</div>`}
-  </div>
 
   <button class="btn danger block" data-s="wipe" style="margin:8px 0 20px">${t('Обриши све податке')}</button>
   <div class="faint tiny" style="text-align:center;margin-bottom:20px">${t('Фит дневник · подаци остају само на овом уређају')}</div>`;
   $('#view').innerHTML = L(h);
+}
+function stepsCard() {
+  const st = stepsStatus();
+  if (!st) return '';
+  let body;
+  if (st === 'unsupported') body = `<div class="muted small">${t('За аутоматске кораке потребан је Android 14 или новији. Кораке уписуј ручно.')}</div>`;
+  else if (st === 'granted' && S.settings.autoSteps) {
+    const at = S.settings.stepsSyncedAt ? new Date(S.settings.stepsSyncedAt) : null;
+    body = `<div class="small" style="margin-bottom:10px"><span class="pos">✓ ${t('Повезано')}</span> <span class="muted">· ${at ? t('учитано {a}', { a: pad2(at.getHours()) + ':' + pad2(at.getMinutes()) }) : ''}</span></div>
+      <div class="muted small" style="margin-bottom:10px">${t('Кораци се учитавају сами кад отвориш апликацију. Ако неки дан упишеш ручно, важи твој број.')}</div>
+      <button class="btn block" data-s="steps">${t('Учитај сада')}</button>`;
+  } else body = `<div class="muted small" style="margin-bottom:10px">${t('Апликација може сама да чита кораке које телефон броји (преко Health Connect). Први пут Android пита за дозволу: укључи „Кораци“.')}</div>
+      <button class="btn primary block" data-s="steps">${t('Повежи кораке са телефона')}</button>`;
+  return `<div class="card"><div class="card-head"><h2>👟 ${t('Кораци са телефона')}</h2></div>${body}</div>`;
 }
 function setLang(l) { S.settings.lang = l; save(); render(); }
 $('#view').addEventListener('click', e => {
@@ -1299,6 +1323,7 @@ $('#view').addEventListener('click', e => {
     case 'profile': return profileSheet();
     case 'addr': return routineSheet();
     case 'update': return window.FitAndroid.checkUpdate();
+    case 'steps': return syncSteps(true);
     case 'wipe': return ask(t('Обрисати СВЕ податке (дане, храну, рецепте, подешавања)? Ово не може да се врати, осим из бекапа.'), t('Обриши све'), () =>
       ask(t('Сигурно? Последња провера.'), t('Да, обриши'), () => { const l = lang(); S = defaults(); S.settings.lang = l; save(); ui.date = todayKey(); ui.tab = 'today'; render(); onboarding(); }));
   }
@@ -1440,10 +1465,46 @@ function importBackup(file) {
   rd.readAsText(file);
 }
 
+/* ================= кораци са телефона (Health Connect) ================= */
+/** null у прегледачу или старом APK-у; иначе 'unsupported' | 'available' | 'granted'. */
+function stepsStatus() {
+  try { return NATIVE && window.FitAndroid.stepsStatus ? window.FitAndroid.stepsStatus() : null; } catch (e) { return null; }
+}
+let stepsManual = false, stepsLast = 0;
+function syncSteps(manual) {
+  const st = stepsStatus();
+  if (!st || st === 'unsupported') { if (manual) toast(t('За аутоматске кораке потребан је Android 14 или новији. Кораке уписуј ручно.')); return; }
+  if (!manual && (!S.settings.autoSteps || st !== 'granted' || Date.now() - stepsLast < 60000)) return;
+  stepsManual = manual; stepsLast = Date.now();
+  // Први пут и на захтев се чита цео месец, иначе последња недеља.
+  window.FitAndroid.syncSteps(manual || !S.settings.stepsSyncedAt ? 30 : 7, !!manual);
+}
+window.onSteps = (data, err) => {
+  if (err) {
+    if (stepsManual) toast(err === 'denied' ? t('Дозвола за кораке није дата. Можеш је укључити у Health Connect подешавањима.')
+      : err === 'unsupported' ? t('За аутоматске кораке потребан је Android 14 или новији. Кораке уписуј ручно.')
+      : t('Кораци нису учитани. Покушај поново.'));
+    return;
+  }
+  let n = 0;
+  for (const [k, v] of Object.entries(data || {})) {
+    const d = day(k);
+    // Број који је она сама уписала се не мења.
+    if (d.stepsSrc === 'manual' && d.steps) continue;
+    if (d.steps !== v) { d.steps = v; n++; }
+    d.stepsSrc = 'hc';
+  }
+  S.settings.autoSteps = true;
+  S.settings.stepsSyncedAt = Date.now();
+  save(); render();
+  if (stepsManual) toast(Object.keys(data || {}).length ? t('Кораци су учитани ✓') : t('Телефон још нема забележене кораке. Провери да ли апликација која броји кораке шаље податке у Health Connect.'));
+};
+
 /* ================= старт ================= */
 function onboarding() { if (!S.settings.onboarded) profileSheet(true); }
 render();
 onboarding();
+syncSteps(false);
 // Нови дан после поноћи ако је апликација остала отворена.
 let lastToday = todayKey();
 document.addEventListener('visibilitychange', () => {
@@ -1451,4 +1512,5 @@ document.addEventListener('visibilitychange', () => {
   const td = todayKey();
   if (td !== lastToday) { if (ui.date === lastToday) ui.date = td; lastToday = td; }
   render();
+  syncSteps(false);
 });
