@@ -122,7 +122,7 @@ window.TR = {
   "нет": ["web", "nett"],
   "моје": ["mine", "mine"],
   "{a} kcal · {b} g П на 100 {u}": ["{a} kcal · {b} g P per 100 {u}", "{a} kcal · {b} g P per 100 {u}"],
-  "Тражи: јаје, туњевина, хлеб…": ["Search: egg, tuna, bread…", "Søk: egg, tunfisk, brød…"],
+  "Тражи, нпр. „2 јаја“ или „туњевина“": ["Search, e.g. “2 eggs” or “tuna”", "Søk, f.eks. «2 egg» eller «tunfisk»"],
   "Бар-код": ["Barcode", "Strekkode"],
   "Интернет": ["Internet", "Internett"],
   "Ручно": ["Manual", "Manuelt"],
@@ -385,7 +385,7 @@ window.TR = {
   "кришке (порција)": ["slices (portion)", "skiver (porsjon)"], "шака": ["handful", "neve"], "чен": ["clove", "fedd"],
   "половина": ["half", "halvdel"], "тањир": ["plate", "tallerken"], "омлет": ["omelette", "omelett"], "коцкица": ["square", "rute"],
   "кесица": ["bag", "pose"], "шољица": ["small cup", "kopp"], "лименка": ["can", "boks"], "флаша": ["bottle", "flaske"],
-  "шејк": ["shake", "shake"], "мерица": ["scoop", "måleskje"],
+  "шејк": ["shake", "shake"], "јаје": ["egg", "egg"], "мерица": ["scoop", "måleskje"],
 
   /* ---------- активности ---------- */
   "Core / ноге (кућни тренинг)": ["Core / legs (home workout)", "Kjerne / bein (hjemmetrening)"],
@@ -599,7 +599,7 @@ window.TR = {
   "Лазање": ["Lasagna", "Lasagne"],
   "Карбонара": ["Carbonara", "Carbonara"],
   "Ризото са пилетином": ["Chicken risotto", "Risotto med kylling"],
-  "Омлет (2 јаја, мало уља)": ["Omelette (2 eggs, a little oil)", "Omelett (2 egg, litt olje)"],
+  "Омлет (мало уља)": ["Omelette (a little oil)", "Omelett (litt olje)"],
   "Кајгана": ["Scrambled eggs", "Eggerøre"],
   "Кувано јаје": ["Boiled egg", "Kokt egg"],
   "Проја са сиром": ["Cornbread with cheese", "Maisbrød med ost"],

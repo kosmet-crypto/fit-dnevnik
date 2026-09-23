@@ -120,12 +120,16 @@ function dateLong(d) {
 const dateShort = k => { const d = parseKey(k); return lang() === 'en' ? (d.getMonth() + 1) + '/' + d.getDate() : d.getDate() + '.' + (d.getMonth() + 1) + '.'; };
 
 /* ================= база хране ================= */
+// Додатне речи за претрагу (нпр. „јаја“ налази и кајгану).
+const ALIASES = { 'Кајгана': 'јаја eggs egg', 'Омлет (мало уља)': 'јаја eggs egg' };
+// Порције које се природно броје: за њих се подразумевано уноси број комада/јаја.
+const COUNT_PORTIONS = ['јаје', 'комад'];
 const BASE = [];
 const BASE_MAP = {};
 for (const [cat, list] of Object.entries(window.FOOD_BASE || {})) {
   for (const [name, kcal, p, unit, portion] of list) {
     const tr = TR[name] || [];
-    const f = { id: 'b:' + name, name, kcal, p, unit, portion, cat, src: 'base', key: norm([name, ...tr].join(' ')) };
+    const f = { id: 'b:' + name, name, kcal, p, unit, portion, cat, src: 'base', key: norm([name, ...tr, ALIASES[name] || ''].join(' ')) };
     BASE.push(f); BASE_MAP[f.id] = f;
   }
 }
@@ -140,7 +144,8 @@ const porName = p => t(p);
 const actName = a => a.rid ? a.name : t(a.name);
 
 function searchFoods(q, limit = 40) {
-  const words = norm(q).split(/\s+/).filter(Boolean);
+  // Скраћивање дужих речи за једно слово покрива падеже и множину (јаја/јаје, eggs/egg).
+  const words = norm(q).split(/\s+/).filter(Boolean).map(w => w.length >= 4 ? w.slice(0, -1) : w);
   if (!words.length) return [];
   const out = [];
   for (const f of allFoods()) {
@@ -165,7 +170,9 @@ function noteUse(items) {
     S.recent = [it.fid, ...S.recent.filter(x => x !== it.fid)].slice(0, 40);
   }
 }
-const itemLine = it => it.fid ? fmt(it.g) + ' ' + (it.unit || 'g') : t('ручно');
+const itemLine = it => !it.fid ? t('ручно')
+  : it.pc ? fmt(it.pc[1], 1) + ' × ' + porName(it.pc[0]) + ' (' + fmt(it.g) + ' ' + (it.unit || 'g') + ')'
+  : fmt(it.g) + ' ' + (it.unit || 'g');
 const PA = () => t('g П');
 
 /* ================= математика ================= */
@@ -561,7 +568,7 @@ function mealSheet(k, mealId) {
     else if (b.dataset.rm) { draft.items.splice(+b.dataset.rm, 1); draw(); }
     else if (b.dataset.edit) {
       const i = +b.dataset.edit, it = draft.items[i], f = it.fid && getFood(it.fid);
-      if (f) qtySheet(f, items => { draft.items.splice(i, 1, ...items); draw(); }, it.g);
+      if (f) qtySheet(f, items => { draft.items.splice(i, 1, ...items); draw(); }, it.pc ? null : it.g, it.pc ? it.pc[1] : undefined);
       else quickSheet(it, nit => { draft.items[i] = nit; draw(); });
     }
   });
@@ -608,7 +615,7 @@ function foodRes(f) {
 }
 function pickFood(opts, cb) {
   const sh = openSheet(t('Додај намирницу'), `
-    <input type="search" id="pq" placeholder="${t('Тражи: јаје, туњевина, хлеб…')}" autocomplete="off">
+    <input type="search" id="pq" placeholder="${t('Тражи, нпр. „2 јаја“ или „туњевина“')}" autocomplete="off">
     <div class="actions3">
       <button class="btn" id="pscan"><span>📷</span>${t('Бар-код')}</button>
       <button class="btn" id="pnet"><span>🌐</span>${t('Интернет')}</button>
@@ -618,7 +625,10 @@ function pickFood(opts, cb) {
   const input = $('#pq', sh), res = $('#pres', sh);
   const done = items => { closeSheet(); cb(items); };
   const draw = () => {
-    const q = input.value.trim();
+    // Број у претрази („2 јаја“, „кајгана 3“) постаје количина.
+    const m = input.value.match(/(^|\s)(\d+(?:[.,]\d+)?)(?=\s|$)/);
+    draw.n = m ? num(m[2]) : null;
+    const q = (m ? input.value.replace(m[0], ' ') : input.value).trim();
     let h = '';
     if (!q) {
       if (opts.meals) {
@@ -644,7 +654,7 @@ function pickFood(opts, cb) {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.rmeal) return done(JSON.parse(JSON.stringify(draw.rm[+b.dataset.rmeal].m.items)));
     const f = getFood(b.dataset.fid);
-    if (f) qtySheet(f, items => done(items));
+    if (f) qtySheet(f, items => done(items), null, draw.n);
   });
   $('#pscan', sh).onclick = () => barcodeSheet(f => qtySheet(f, items => done(items)));
   $('#pnet', sh).onclick = () => netSheet(input.value.trim(), f => qtySheet(f, items => done(items)));
@@ -654,12 +664,20 @@ function pickFood(opts, cb) {
 }
 
 /* ---------- количина ---------- */
-function qtySheet(f, cb, g0) {
+function qtySheet(f, cb, g0, count) {
   const u = unitOf(f);
   const por = f.portion && f.portion[1] > 0 ? f.portion : null;
-  // Подразумевано у грамима (тако она уноси); порција је брзи избор.
-  let mode = 'g';
-  const val = g0 != null ? g0 : por ? por[1] : 100;
+  // Подразумевано у грамима (тако она уноси), осим за оно што се броји (јаја, комади)
+  // или ако је за ову намирницу последњи пут бирала порцију. Број из претраге се поштује.
+  S.qmode ||= {};
+  let mode = 'g', val;
+  if (g0 != null) val = g0;
+  else if (count > 0 && por && count <= 30) { mode = 'p'; val = count; }
+  else if (count > 30) val = count;
+  else {
+    mode = por && (S.qmode[f.id] || (COUNT_PORTIONS.includes(por[0]) ? 'p' : 'g')) === 'p' ? 'p' : 'g';
+    val = mode === 'p' ? 1 : por ? por[1] : 100;
+  }
   const sh = openSheet(esc(foodName(f)), `
     <div class="muted small" style="text-align:center">${t('{a} kcal · {b} g протеина на 100 {u}', { a: fmt(f.kcal), b: fmt(f.p, 1), u })}${f.brand ? ' · ' + esc(f.brand) : ''}</div>
     ${por ? `<div class="chips" style="justify-content:center;margin-top:12px"><button class="chip" data-mode="p">${esc(porName(por[0]))} (${fmt(por[1])} ${u})</button><button class="chip" data-mode="g">${u}</button></div>` : ''}
@@ -681,7 +699,7 @@ function qtySheet(f, cb, g0) {
   const draw = () => {
     $$('[data-mode]', sh).forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
     $('#qlab', sh).textContent = L(mode === 'p' ? t('Колико ({a})', { a: porName(por[0]) }) : t('Количина ({a})', { a: u }));
-    const quick = mode === 'p' ? [0.5, 1, 1.5, 2, 3] : [30, 50, 100, 150, 200, 250];
+    const quick = mode === 'p' ? [1, 2, 3, 4, 5] : [30, 50, 100, 150, 200, 250];
     $('#qq', sh).innerHTML = quick.map(q => `<button class="chip" data-q="${q}">${fmt(q, 1)}</button>`).join('');
     upd();
   };
@@ -701,7 +719,11 @@ function qtySheet(f, cb, g0) {
   $('#qok', sh).onclick = () => {
     const g = grams();
     if (!(g > 0)) return toast(t('Упиши количину'));
-    closeSheet(); cb([makeItem(f, g)]);
+    if (por) { S.qmode[f.id] = mode; save(); }
+    const it = makeItem(f, g);
+    // Запамти и број порција (нпр. 3 јаја), да у листи пише тако, а не само у грамима.
+    if (mode === 'p') it.pc = [por[0], num(input.value)];
+    closeSheet(); cb([it]);
   };
   const split = $('#qsplit', sh);
   if (split) split.onclick = () => {
@@ -863,7 +885,8 @@ function netSheet(q, cb) {
   const res = $('#nres', sh);
   let found = [];
   const go = async () => {
-    const term = $('#nq', sh).value.trim(); if (!term) return;
+    // Производи у бази су углавном написани латиницом, па се ћирилица пресловљава.
+    const term = toLat($('#nq', sh).value.trim()); if (!term) return;
     res.innerHTML = L(`<div class="empty">${t('Тражим…')}</div>`);
     try {
       let prods;
