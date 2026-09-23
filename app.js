@@ -280,8 +280,8 @@ function tipsFor(c) {
   const hour = new Date().getHours();
   const rem = tg - c.kcal, prem = pmin - c.p;
   const out = [];
-  const heavyPlanned = routinesOn(k).some(r => r.met >= 5 && routineState(k, r) !== 'skip');
-  const heavy = c.ak >= 300 || heavyPlanned;
+  // Само потврђене активности: план (нпр. плес) се не рачуна док она не каже „Да“.
+  const heavy = c.ak >= 300;
   const short = (c.d.acts || []).some(a => a.short);
   if (!isToday) {
     if (!c.logged) return [['📝', t('За овај дан нема уноса хране. Можеш да га допуниш кад год хоћеш.')]];
