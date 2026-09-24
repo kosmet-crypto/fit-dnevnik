@@ -12,4 +12,7 @@
     <string name="update_checking">Ser etter ny versjon…</string>
     <string name="update_none">Du har nyeste versjon (%1$s).</string>
     <string name="update_failed">Kunne ikke sjekke. Sjekk internettforbindelsen og prøv igjen.</string>
+    <string name="widget_open">Åpne appen</string>
+    <string name="widget_desc">Kalorier, protein og vann igjen i dag</string>
+    <string name="widget_add_water">+ glass</string>
 </resources>

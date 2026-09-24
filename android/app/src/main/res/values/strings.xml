@@ -12,4 +12,7 @@
     <string name="update_checking">Проверавам да ли има нова верзија…</string>
     <string name="update_none">Имаш најновију верзију (%1$s).</string>
     <string name="update_failed">Провера није успела. Провери интернет и покушај поново.</string>
+    <string name="widget_open">Отвори апликацију</string>
+    <string name="widget_desc">Преостале калорије, протеин и вода за данас</string>
+    <string name="widget_add_water">+ чаша</string>
 </resources>

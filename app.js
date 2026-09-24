@@ -30,7 +30,7 @@ function defaults() {
     v: 1,
     profile: { sex: 'f', age: null, height: null, weight: null, level: 1.2, target: null, protMin: null, protMax: null, water: 2250, glass: 250 },
     settings: { lang: defaultLang(), theme: 'auto', showWeight: false, lastBackup: 0, onboarded: false },
-    foods: {}, routines: [], days: {}, recent: [], usage: {}
+    foods: {}, routines: [], days: {}, recent: [], usage: {}, measures: []
   };
 }
 function normalize(s) {
@@ -39,7 +39,8 @@ function normalize(s) {
     ...d, ...s,
     profile: { ...d.profile, ...(s.profile || {}) },
     settings: { ...d.settings, ...(s.settings || {}) },
-    foods: s.foods || {}, routines: s.routines || [], days: s.days || {}, recent: s.recent || [], usage: s.usage || {}
+    foods: s.foods || {}, routines: s.routines || [], days: s.days || {}, recent: s.recent || [], usage: s.usage || {},
+    measures: s.measures || []
   };
   // Прва верзија је имала само избор писма.
   if (!(s.settings || {}).lang) out.settings.lang = (s.settings || {}).script === 'lat' ? 'sr-lat' : 'sr';
@@ -57,6 +58,7 @@ let S = load();
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast(t('Грешка при чувању података!')); }
+  clearTimeout(save.w); save.w = setTimeout(pushWidget, 400);
 }
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -320,6 +322,7 @@ function tipsFor(c) {
   if (hour >= 20 && c.logged && c.kcal < 1200) out.push(['⚠️', t('До сада само {a} kcal. Превелики дефицит умара и топи мишиће. Поједи још нешто лагано и протеинско.', { a: fmt(c.kcal) })]);
   const wgoal = S.profile.water || 2250;
   if (hour >= 15 && c.water < wgoal / 2) out.push(['💧', t('Попила си {a} L од {b} L. Чаша воде сада?', { a: fmt(c.water / 1000, 2), b: fmt(wgoal / 1000, 2) })]);
+  if (c.d.sleep && c.d.sleep < 360) out.push(['😴', t('Спавала си само {a}. Мање сна обично значи већу глад, зато данас бирај ситније протеинске оброке и доста воде.', { a: sleepText(c.d.sleep) })]);
   if (hour >= 17 && c.steps && c.steps < 7000) {
     const more = 8000 - c.steps;
     out.push(['🚶‍♀️', t('Још {a} корака ≈ {b} kcal. Кратка шетња после вечере?', { a: fmt(more), b: fmt(stepsKcal(more, c.w)) })]);
@@ -347,6 +350,16 @@ function renderToday() {
   const since = S.settings.lastBackup ? Math.floor((Date.now() - S.settings.lastBackup) / 864e5) : null;
   if (hasData && isToday && (since === null || since >= 7)) {
     h += `<div class="banner"><span>💾</span><div class="grow">${since === null ? t('Још ниси направила бекап.') : t('Последњи бекап пре {a} дана.', { a: since })}</div><button class="btn sm" data-act="backup">${t('Сачувај')}</button></div>`;
+  }
+  // Понедељак–среда: извештај за прошлу недељу док га не затвори.
+  if (isToday && wd(k) <= 2) {
+    const wk = addDays(k, -wd(k) - 7);
+    if (S.settings.reportSeen !== wk) { const r = weekReportCard(wk, true); if (r) h += r; }
+  }
+  // Једном месечно подсетник за обиме, само ако их већ уписује.
+  const lastM = S.measures.length ? S.measures[S.measures.length - 1].d : null;
+  if (isToday && lastM && addDays(lastM, 30) <= k && (S.settings.measureSnooze || '') <= k) {
+    h += `<div class="banner" style="background:var(--prot-soft)"><span>📏</span><div class="grow">${t('Прошао је месец дана. Упиши обим струка и бокова?')}</div><button class="btn sm" data-act="measure">${t('Упиши')}</button><button class="btn sm ghost" data-act="msnooze">${t('Касније')}</button></div>`;
   }
 
   const rem = tg - c.kcal, over = rem < 0;
@@ -403,6 +416,7 @@ function renderToday() {
     <div class="tile"><span class="tl">💧 ${t('Вода')}</span><span class="tv num">${fmt(c.water / 1000, 2)} L</span>
       <div class="bar"><i style="width:${Math.min(100, c.water / wgoal * 100)}%;background:var(--water)"></i></div>
       <div class="water-ctrl"><button data-water="-1" aria-label="${t('Мање')}">−</button><span class="ts" style="flex:1;text-align:center">${S.profile.glass || 250} ml</span><button data-water="1" aria-label="${t('Више')}">+</button></div></div>
+    ${c.d.sleep ? `<div class="tile" style="grid-column:span 2;min-height:0;flex-direction:row;align-items:center;justify-content:space-between"><span class="tl">😴 ${t('Сан прошле ноћи')}</span><span class="tv num" style="font-size:18px">${sleepText(c.d.sleep)}</span></div>` : ''}
   </div>`;
 
   const meals = [...(c.d.meals || [])].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
@@ -431,6 +445,10 @@ function renderToday() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
       <span class="muted small">⚖️ ${t('Тежина (није обавезно)')}</span>
       <button class="btn sm" data-act="weight">${c.d.weight ? fmt(c.d.weight, 1) + ' kg' : t('Упиши')}</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+      <span class="muted small">📏 ${t('Обим струка и бокова (није обавезно)')}</span>
+      <button class="btn sm" data-act="measure">${t('Упиши')}</button>
     </div></div>`;
 
   $('#view').innerHTML = L(h);
@@ -477,6 +495,10 @@ $('#view').addEventListener('click', e => {
     case 'steps': return stepsSheet(k);
     case 'addact': return actSheet(k);
     case 'weight': return weightSheet(k);
+    case 'measure': return measureSheet();
+    case 'msnooze': S.settings.measureSnooze = addDays(todayKey(), 7); save(); render(); return;
+    case 'rseen': S.settings.reportSeen = ds.v; save(); render(); return;
+    case 'rstats': ui.tab = 'stats'; render(); window.scrollTo(0, 0); return;
     case 'backup': return exportBackup();
   }
 });
@@ -1168,9 +1190,11 @@ function renderStats() {
   const streak = pred => { let n = 0, k = end; if (!pred(calc(k))) k = addDays(k, -1); while (pred(calc(k))) { n++; k = addDays(k, -1); if (n > 3650) break; } return n; };
   const sLog = streak(c => c.logged), sTar = streak(inTarget), sProt = streak(c => c.logged && c.p >= pmin);
 
-  let h = `<div class="chips" style="margin:4px 0 6px">${[7, 30, 90].map(v => `<button class="chip ${N === v ? 'on' : ''}" data-n="${v}">${t('{a} дана', { a: v })}</button>`).join('')}</div>`;
+  let h = weekReportCard(addDays(end, -wd(end) - 7), false) || '';
+  h += `<div class="chips" style="margin:4px 0 6px">${[7, 30, 90].map(v => `<button class="chip ${N === v ? 'on' : ''}" data-n="${v}">${t('{a} дана', { a: v })}</button>`).join('')}</div>`;
   if (!logged.length) {
     h += `<div class="empty">${t('За овај период још нема унете хране.')}<br>${t('Статистика ће се попуњавати сама како уносиш дане.')}</div>`;
+    h += measuresCard();
     $('#view').innerHTML = L(h); return;
   }
   h += `<div class="stat-tiles">
@@ -1182,6 +1206,7 @@ function renderStats() {
     <div class="st"><div class="l">${t('Кораци (просек)')}</div><div class="v num">${stepsDays.length ? fmt(avg(stepsDays, c => c.steps)) : '—'}</div><div class="s">${t('{a} дана са уносом', { a: stepsDays.length })}</div></div>
     <div class="st"><div class="l">${t('Тренинг по плану')}</div><div class="v num">${sched ? Math.round(done / sched * 100) + '%' : '—'}</div><div class="s">${sched ? t('{a} од {b} планираних', { a: done, b: sched }) : t('нема рутина')}</div></div>
     <div class="st"><div class="l">${t('Минута вежбања')}</div><div class="v num">${fmt(cs.reduce((s, c) => s + c.amin, 0))}</div><div class="s">${t('укупно у периоду')}</div></div>
+    ${cs.some(c => c.d.sleep) ? `<div class="st"><div class="l">${t('Сан (просек)')}</div><div class="v num">${sleepText(avg(cs.filter(c => c.d.sleep), c => c.d.sleep))}</div><div class="s">${t('{a} ноћи', { a: cs.filter(c => c.d.sleep).length })}</div></div>` : ''}
   </div>
   <div class="card"><div class="card-head"><h2>🔥 ${t('Низови')}</h2></div>
     <div class="grid3" style="text-align:center">
@@ -1222,13 +1247,100 @@ function renderStats() {
   }
   const top = Object.entries(cnt).sort((a, b) => b[1].n - a[1].n).slice(0, 8);
   if (top.length) h += `<div class="card"><h2 style="margin-bottom:8px">${t('Најчешће једеш')}</h2><table class="t">${top.map(([n, v]) => `<tr><td>${esc(n)}</td><td class="r muted">${v.n}×</td><td class="r num">${fmt(v.k)} kcal</td></tr>`).join('')}</table></div>`;
+  h += measuresCard();
   h += `<div class="note">${t('Биланс = унос − потрошња. Минус значи дефицит (топи се), плус значи вишак. 7.700 kcal дефицита је отприлике 1 kg масти. Рачунају се само дани у којима је унета храна.')}</div>`;
   $('#view').innerHTML = L(h);
 }
 $('#view').addEventListener('click', e => {
   if (ui.tab !== 'stats') return;
   const b = e.target.closest('[data-n]'); if (b) { ui.statN = +b.dataset.n; renderStats(); }
+  const m = e.target.closest('[data-measure]'); if (m) measureSheet(m.dataset.measure || null);
 });
+
+/* ================= недељни извештај ================= */
+/** Картица за недељу која почиње понедељком mon; null ако те недеље ништа није унето. */
+function weekReportCard(mon, onToday) {
+  const ks = lastDays(addDays(mon, 6), 7), cs = ks.map(calc), logged = cs.filter(c => c.logged);
+  if (!logged.length) return null;
+  const [pmin] = protRange();
+  const bal = logged.reduce((s, c) => s + c.bal, 0);
+  const protDays = logged.filter(c => c.p >= pmin).length;
+  const inT = logged.filter(inTarget).length;
+  let sched = 0, done = 0;
+  // Као у статистици: рачунају се само дани које је водила (иначе би празни дани изгледали као пропуштени тренинзи).
+  for (const c of cs) {
+    if (!c.logged && !(c.d.acts || []).length) continue;
+    for (const r of routinesOn(c.k)) { sched++; if (routineState(c.k, r) === 'done') done++; }
+  }
+  const heavy = cs.reduce((n, c) => n + (c.d.acts || []).filter(a => a.met >= 5).length, 0);
+  const stepDays = cs.filter(c => c.steps > 0), avgSteps = stepDays.length ? stepDays.reduce((s, c) => s + c.steps, 0) / stepDays.length : 0;
+  const sleepDays = cs.filter(c => c.d.sleep), avgSleep = sleepDays.length ? sleepDays.reduce((s, c) => s + c.d.sleep, 0) / sleepDays.length : 0;
+  const best = logged.filter(c => inTarget(c) && c.p >= pmin).sort((a, b) => a.bal - b.bal)[0] || logged.slice().sort((a, b) => a.bal - b.bal)[0];
+  // Један савет: оно што је те недеље било најслабије.
+  let tip;
+  if (logged.length < 5) tip = t('Покушај да уносиш храну сваки дан, и кад дан није савршен. Тако бројеви постају тачни.');
+  else if (protDays < 4) tip = t('Протеин је био испуњен само {a} дана. Додај протеин уз сваки оброк: јаја, скир, туњевина, пудинг.', { a: protDays });
+  else if (bal > 0) tip = t('Недеља је завршена у плусу. Без бриге, ове недеље само прати циљ и већ ће се видети разлика.');
+  else if (stepDays.length && avgSteps < 7000) tip = t('Просек корака је {a}. Кратка шетња после вечере лако дода 2.000 корака.', { a: fmt(avgSteps) });
+  else if (sleepDays.length && avgSleep < 420) tip = t('Спавала си у просеку {a}. Више сна олакшава контролу апетита.', { a: sleepText(avgSleep) });
+  else tip = t('Одлична недеља! Настави истим темпом. 💪');
+  const row = (l, v) => `<tr><td>${l}</td><td class="r num">${v}</td></tr>`;
+  return `<div class="card" style="border:1.5px solid var(--accent-soft)">
+    <div class="card-head"><h2>📊 ${t('Прошла недеља')}</h2><span class="muted small">${dateShort(ks[0])}–${dateShort(ks[6])}</span></div>
+    <div class="bigval num ${bal <= 0 ? 'pos' : 'warn'}">${signed(Math.round(bal))} kcal</div>
+    <div class="muted small" style="margin:4px 0 10px">${bal < 0 ? t('≈ {a} масти мање', { a: fatText(-bal) }) : t('мали вишак')}</div>
+    <table class="t">
+      ${row(t('Дана унето'), logged.length + '/7')}
+      ${row(t('Дана у циљу'), inT + '/' + logged.length)}
+      ${row(t('Протеин испуњен'), t('{a} дана', { a: protDays }))}
+      ${sched ? row(t('Тренинг по плану'), done + '/' + sched) : ''}
+      ${heavy ? row(t('Плес / јачи тренинг'), heavy + '×') : ''}
+      ${stepDays.length ? row(t('Кораци (просек)'), fmt(avgSteps)) : ''}
+      ${sleepDays.length ? row(t('Сан (просек)'), sleepText(avgSleep)) : ''}
+      ${best ? row(t('Најбољи дан'), t(DAY_LONG[wd(best.k)])) : ''}
+    </table>
+    <div class="tip" style="margin:12px 0 0"><div class="em">💡</div><p>${tip}</p></div>
+    ${onToday ? `<div class="btnrow" style="margin-top:12px"><button class="btn sm" data-act="rstats">${t('Статистика')}</button><button class="btn sm primary" data-act="rseen" data-v="${mon}">${t('Готово')}</button></div>` : ''}
+  </div>`;
+}
+
+/* ================= сан и обими ================= */
+function sleepText(min) { const h = Math.floor(min / 60), m = Math.round(min % 60); return h + ' h' + (m ? ' ' + m + ' min' : ''); }
+
+function measuresCard() {
+  const ms = S.measures;
+  let body;
+  if (!ms.length) body = `<p class="muted small" style="margin:0 0 10px">${t('Обим струка се често смањује и кад вага стоји. Упиши га једном месечно, ако желиш.')}</p>`;
+  else {
+    const first = ms[0], last = ms[ms.length - 1];
+    const diff = (a, b) => { const d = Math.round((b - a) * 10) / 10; return d ? ` <span class="${d < 0 ? 'pos' : 'warn'}">(${d > 0 ? '+' : ''}${fmt(d, 1)} cm)</span>` : ''; };
+    body = `<table class="t" style="margin-bottom:10px"><tr><th>${t('Датум')}</th><th class="r">${t('Струк')}</th><th class="r">${t('Бокови')}</th></tr>
+      ${ms.slice(-6).reverse().map(m => `<tr data-measure="${m.d}"><td>${dateShort(m.d)}</td><td class="r num">${m.waist ? fmt(m.waist, 1) : '—'}</td><td class="r num">${m.hips ? fmt(m.hips, 1) : '—'}</td></tr>`).join('')}</table>
+      ${ms.length > 1 ? `<div class="small" style="margin-bottom:10px">${t('Од {a}:', { a: dateShort(first.d) })} ${first.waist && last.waist ? t('струк') + ' ' + fmt(last.waist, 1) + ' cm' + diff(first.waist, last.waist) : ''}${first.hips && last.hips ? ' · ' + t('бокови') + ' ' + fmt(last.hips, 1) + ' cm' + diff(first.hips, last.hips) : ''}</div>` : ''}`;
+  }
+  return `<div class="card"><div class="card-head"><h2>📏 ${t('Обими')}</h2></div>${body}<button class="btn block" data-measure="">${t('Упиши обиме')}</button></div>`;
+}
+function measureSheet(date) {
+  const d0 = date || todayKey();
+  const ex = S.measures.find(m => m.d === d0) || {};
+  const sh = openSheet(t('Обими'), `<label class="f">${t('Датум')}</label><input type="date" id="md" value="${d0}" max="${todayKey()}">
+    <div class="grid2"><div><label class="f">${t('Струк (cm)')}</label><input type="text" inputmode="decimal" id="mw" value="${ex.waist ? decStr(ex.waist) : ''}"></div>
+    <div><label class="f">${t('Бокови (cm)')}</label><input type="text" inputmode="decimal" id="mh" value="${ex.hips ? decStr(ex.hips) : ''}"></div></div>
+    <div class="note">${t('Мери ујутру, у висини пупка за струк и на најширем делу за бокове. Није обавезно, само за твој осећај напретка.')}</div>
+    ${date ? `<button class="btn danger block" id="mdel">${t('Обриши')}</button>` : ''}`,
+    `<button class="btn" data-close>${t('Откажи')}</button><button class="btn primary" id="mok">${t('Сачувај')}</button>`);
+  $('#mok', sh).onclick = () => {
+    const d = $('#md', sh).value || todayKey(), w = num($('#mw', sh).value), hp = num($('#mh', sh).value);
+    if (!(w > 30) && !(hp > 30)) return toast(t('Упиши бар један обим'));
+    S.measures = S.measures.filter(m => m.d !== d && m.d !== date);
+    S.measures.push({ d, waist: w > 30 ? w : null, hips: hp > 30 ? hp : null });
+    S.measures.sort((a, b) => a.d.localeCompare(b.d));
+    S.settings.measureSnooze = null;
+    save(); closeSheet(); render();
+  };
+  const del = $('#mdel', sh);
+  if (del) del.onclick = () => { S.measures = S.measures.filter(m => m.d !== date); save(); closeSheet(); render(); };
+}
 
 /* ================= Подешавања ================= */
 function langChips() {
@@ -1255,6 +1367,7 @@ ${stepsCard()}
     <div class="grid2"><button class="btn primary" data-s="export">${t('Сачувај бекап')}</button><button class="btn" data-s="import">${t('Врати из бекапа')}</button></div>
     <div class="muted tiny" style="margin-top:8px">${sinceB ? t('Последњи бекап: {a}', { a: dateLong(sinceB) }) : t('Бекап још није направљен.')}</div>
     <input type="file" id="impf" accept=".json,application/json,text/plain" class="hidden">
+    ${autoBackupSection()}
   </div>
 
   <div class="card"><div class="card-head"><h2>👤 ${t('Профил и циљеви')}</h2><button class="linkbtn" data-s="profile">${t('Измени')}</button></div>
@@ -1294,6 +1407,19 @@ ${stepsCard()}
   <div class="faint tiny" style="text-align:center;margin-bottom:20px">${t('Фит дневник · подаци остају само на овом уређају')}</div>`;
   $('#view').innerHTML = L(h);
 }
+function autoBackupSection() {
+  if (!NATIVE || !window.FitAndroid.backupFolderName) return '';
+  const folder = window.FitAndroid.backupFolderName();
+  const last = S.settings.lastAutoBackup ? new Date(S.settings.lastAutoBackup) : null;
+  if (!folder || !S.settings.autoBackup) return `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+    <b class="small">${t('Аутоматски бекап')}</b>
+    <p class="muted small" style="margin:4px 0 10px">${t('Једном недељно апликација сама сачува бекап у фасциклу коју изабереш (нпр. Documents). Тако подаци не нестану ако се апликација обрише.')}</p>
+    <button class="btn block" data-s="afolder">${t('Изабери фасциклу')}</button></div>`;
+  return `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+    <b class="small">${t('Аутоматски бекап')}</b> <span class="pos small">✓ ${t('укључен')}</span>
+    <div class="muted small" style="margin:4px 0 10px">${t('Фасцикла: {a}', { a: esc(folder) })}${last ? ' · ' + t('последњи: {a}', { a: dateLong(last) }) : ''}</div>
+    <div class="grid2"><button class="btn sm" data-s="afolder">${t('Промени фасциклу')}</button><button class="btn sm ghost" data-s="aoff">${t('Искључи')}</button></div></div>`;
+}
 function stepsCard() {
   const st = stepsStatus();
   if (!st) return '';
@@ -1305,6 +1431,7 @@ function stepsCard() {
       <div class="muted small" style="margin-bottom:10px">${t('Кораци се учитавају сами кад отвориш апликацију. Ако неки дан упишеш ручно, важи твој број.')}</div>
       ${stepsSources()}
       ${stepsWeekTable()}
+      ${window.FitAndroid.sleepStatus && window.FitAndroid.sleepStatus() === 'available' ? `<div class="muted small" style="margin-bottom:10px">😴 ${t('Апликација може да чита и сан. Тапни „Учитај сада“ и дозволи „Сан“.')}</div>` : ''}
       <button class="btn block" data-s="steps">${t('Учитај сада')}</button>`;
   } else body = `<div class="muted small" style="margin-bottom:10px">${t('Апликација може сама да чита кораке које телефон броји (преко Health Connect). Први пут Android пита за дозволу: укључи „Кораци“.')}</div>
       <button class="btn primary block" data-s="steps">${t('Повежи кораке са телефона')}</button>`;
@@ -1356,6 +1483,8 @@ $('#view').addEventListener('click', e => {
     case 'addr': return routineSheet();
     case 'update': return window.FitAndroid.checkUpdate();
     case 'steps': return syncSteps(true);
+    case 'afolder': return window.FitAndroid.chooseBackupFolder();
+    case 'aoff': S.settings.autoBackup = false; save(); render(); return;
     case 'wipe': return ask(t('Обрисати СВЕ податке (дане, храну, рецепте, подешавања)? Ово не може да се врати, осим из бекапа.'), t('Обриши све'), () =>
       ask(t('Сигурно? Последња провера.'), t('Да, обриши'), () => { const l = lang(); S = defaults(); S.settings.lang = l; save(); ui.date = todayKey(); ui.tab = 'today'; render(); onboarding(); }));
   }
@@ -1462,10 +1591,11 @@ function routineSheet(id) {
 }
 
 /* ================= бекап ================= */
+const backupText = d => JSON.stringify({ app: 'fit-dnevnik', v: 1, exported: d.toISOString(), data: S }, null, 1);
 function exportBackup() {
   const d = new Date();
   const name = `fit-dnevnik-${keyOf(d)}.json`;
-  const text = JSON.stringify({ app: 'fit-dnevnik', v: 1, exported: d.toISOString(), data: S }, null, 1);
+  const text = backupText(d);
   S.settings.lastBackup = Date.now(); save();
   if (window.FitAndroid && window.FitAndroid.saveFile) {
     window.FitAndroid.saveFile(name, text);
@@ -1538,17 +1668,68 @@ window.onSteps = (data, err) => {
   if (stepsManual) toast(Object.keys(data || {}).length ? t('Кораци су учитани ✓') : t('Телефон још нема забележене кораке. Провери да ли апликација која броји кораке шаље податке у Health Connect.'));
 };
 
+/* ---------- аутоматски бекап ---------- */
+function maybeAutoBackup() {
+  if (!NATIVE || !window.FitAndroid.autoBackup || !S.settings.autoBackup) return;
+  if (Date.now() - (S.settings.lastAutoBackup || 0) < 7 * 864e5) return;
+  if (!Object.keys(S.days).length) return;
+  const d = new Date();
+  window.FitAndroid.autoBackup(`fit-dnevnik-auto-${keyOf(d)}.json`, backupText(d));
+}
+window.onBackupFolder = label => {
+  if (!label) return;
+  S.settings.autoBackup = true;
+  S.settings.lastAutoBackup = 0;
+  save(); maybeAutoBackup(); render();
+};
+window.onAutoBackup = ok => {
+  if (ok) { S.settings.lastAutoBackup = S.settings.lastBackup = Date.now(); save(); render(); toast(t('Аутоматски бекап је сачуван ✓')); }
+  else toast(t('Аутоматски бекап није успео. Изабери фасциклу поново у Подешавањима.'));
+};
+
+/* ---------- сан ---------- */
+window.onSleep = data => {
+  let n = 0;
+  for (const [k, v] of Object.entries(data || {})) { if (v > 0 && v < 20 * 60) { const d = day(k); if (d.sleep !== v) { d.sleep = v; n++; } } }
+  if (n) { save(); render(); }
+};
+
+/* ---------- виџет ---------- */
+function pushWidget() {
+  if (!NATIVE || !window.FitAndroid.updateWidget) return;
+  const k = todayKey(), c = calc(k), tg = target(), [pmin] = protRange(), rem = Math.round(tg - c.kcal);
+  window.FitAndroid.updateWidget(JSON.stringify({
+    date: k,
+    big: (rem < 0 ? '+' + fmt(-rem) : fmt(rem)) + ' kcal',
+    label: L(rem < 0 ? t('преко циља данас') : t('остало данас')),
+    sub: L(t('Протеин {a} / {b} g', { a: fmt(c.p), b: pmin })),
+    waterLabel: '', waterMl: Math.round(c.water), waterGoal: S.profile.water || 2250, glass: S.profile.glass || 250
+  }));
+}
+/** Чаше воде додате из виџета док апликација није била отворена. */
+function takeWidgetWater() {
+  if (!NATIVE || !window.FitAndroid.takeWidgetWater) return;
+  const n = window.FitAndroid.takeWidgetWater();
+  if (n > 0) { const d = day(todayKey()); d.water = (d.water || 0) + n * (S.profile.glass || 250); save(); render(); }
+}
+
 /* ================= старт ================= */
 function onboarding() { if (!S.settings.onboarded) profileSheet(true); }
+takeWidgetWater();
 render();
 onboarding();
 syncSteps(false);
+maybeAutoBackup();
+pushWidget();
 // Нови дан после поноћи ако је апликација остала отворена.
 let lastToday = todayKey();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   const td = todayKey();
   if (td !== lastToday) { if (ui.date === lastToday) ui.date = td; lastToday = td; }
+  takeWidgetWater();
   render();
   syncSteps(false);
+  maybeAutoBackup();
+  pushWidget();
 });

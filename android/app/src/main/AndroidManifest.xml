@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Steps counted by the phone, read through Health Connect (Android 14+). -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
 
     <application
         android:label="@string/app_name"
@@ -36,6 +37,18 @@
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
         </activity-alias>
+
+        <!-- Home screen widget: calories and protein left, water. -->
+        <receiver
+            android:name=".WidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
 
         <!-- Lets Google Play services download the barcode scanner module ahead of first use. -->
         <meta-data

@@ -6,19 +6,24 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.health.connect.AggregateRecordsRequest;
 import android.health.connect.AggregateRecordsResponse;
 import android.health.connect.HealthConnectException;
 import android.health.connect.HealthConnectManager;
+import android.health.connect.ReadRecordsRequestUsingFilters;
+import android.health.connect.ReadRecordsResponse;
 import android.health.connect.TimeInstantRangeFilter;
 import android.health.connect.datatypes.DataOrigin;
+import android.health.connect.datatypes.SleepSessionRecord;
 import android.health.connect.datatypes.StepsRecord;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.OutcomeReceiver;
+import android.provider.DocumentsContract;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -42,9 +47,14 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -59,7 +69,9 @@ public class MainActivity extends Activity {
     private static final int REQ_PICK_FILE = 1;
     private static final int REQ_SAVE_FILE = 2;
     private static final int REQ_STEPS = 3;
+    private static final int REQ_TREE = 4;
     private static final String READ_STEPS = "android.permission.health.READ_STEPS";
+    private static final String READ_SLEEP = "android.permission.health.READ_SLEEP";
 
     private WebView webView;
     private ValueCallback<Uri[]> pendingPick;
@@ -203,8 +215,68 @@ public class MainActivity extends Activity {
 
     /* ---------- steps from Health Connect (built into Android 14+) ---------- */
 
+    private boolean granted(String permission) {
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
     private boolean stepsGranted() {
-        return checkSelfPermission(READ_STEPS) == PackageManager.PERMISSION_GRANTED;
+        return granted(READ_STEPS);
+    }
+
+    /** Reads whatever Health Connect data she allowed: steps and/or sleep. */
+    @TargetApi(34)
+    private void readHealth(int days, boolean afterRequest) {
+        if (stepsGranted()) readSteps(days);
+        else sendSteps(null, afterRequest ? "denied" : "noperm");
+        if (granted(READ_SLEEP)) readSleep(days);
+    }
+
+    /**
+     * Sleep of the last nights, in minutes, keyed by the day the sleep ended (the morning):
+     * window.onSleep({"yyyy-mm-dd": minutes}). Like steps, sources are never added together;
+     * the source with the most sleep that night is used.
+     */
+    @TargetApi(34)
+    private void readSleep(int days) {
+        HealthConnectManager hc = getSystemService(HealthConnectManager.class);
+        if (hc == null) return;
+        final ZoneId zone = ZoneId.systemDefault();
+        Instant start = LocalDate.now(zone).minusDays(days).atTime(18, 0).atZone(zone).toInstant();
+        ReadRecordsRequestUsingFilters<SleepSessionRecord> req =
+                new ReadRecordsRequestUsingFilters.Builder<SleepSessionRecord>(SleepSessionRecord.class)
+                        .setTimeRangeFilter(new TimeInstantRangeFilter.Builder()
+                                .setStartTime(start).setEndTime(Instant.now()).build())
+                        .setPageSize(1000)
+                        .build();
+        hc.readRecords(req, getMainExecutor(),
+                new OutcomeReceiver<ReadRecordsResponse<SleepSessionRecord>, HealthConnectException>() {
+                    @Override
+                    public void onResult(ReadRecordsResponse<SleepSessionRecord> r) {
+                        Map<String, Map<String, Long>> byDay = new HashMap<>();
+                        for (SleepSessionRecord rec : r.getRecords()) {
+                            String day = rec.getEndTime().atZone(zone).toLocalDate().toString();
+                            String src = rec.getMetadata().getDataOrigin().getPackageName();
+                            long min = Duration.between(rec.getStartTime(), rec.getEndTime()).toMinutes();
+                            if (min <= 0) continue;
+                            byDay.computeIfAbsent(day, k -> new HashMap<>()).merge(src, min, Long::sum);
+                        }
+                        JSONObject out = new JSONObject();
+                        for (Map.Entry<String, Map<String, Long>> e : byDay.entrySet()) {
+                            long max = 0;
+                            for (long v : e.getValue().values()) max = Math.max(max, v);
+                            try {
+                                out.put(e.getKey(), max);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        webView.evaluateJavascript("window.onSleep && window.onSleep(" + out + ")", null);
+                    }
+
+                    @Override
+                    public void onError(HealthConnectException e) {
+                        // Sleep is optional; steps still work.
+                    }
+                });
     }
 
     /**
@@ -295,6 +367,46 @@ public class MainActivity extends Activity {
                 });
     }
 
+    /* ---------- backup folder ---------- */
+
+    private Uri backupFolder() {
+        String s = getSharedPreferences("backup", MODE_PRIVATE).getString("tree", null);
+        if (s == null) return null;
+        Uri tree = Uri.parse(s);
+        for (UriPermission p : getContentResolver().getPersistedUriPermissions()) {
+            if (p.getUri().equals(tree) && p.isWritePermission()) return tree;
+        }
+        return null;
+    }
+
+    private static String folderLabel(Uri tree) {
+        String id = DocumentsContract.getTreeDocumentId(tree);
+        int colon = id.lastIndexOf(':');
+        String path = colon >= 0 ? id.substring(colon + 1) : id;
+        return path.isEmpty() ? id : path;
+    }
+
+    private boolean writeToFolder(String name, String text) {
+        Uri tree = backupFolder();
+        if (tree == null) return false;
+        try {
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            Uri doc = DocumentsContract.createDocument(getContentResolver(), parent, "application/json", name);
+            if (doc == null) return false;
+            try (OutputStream out = getContentResolver().openOutputStream(doc)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void sendFolder(String label) {
+        webView.evaluateJavascript("window.onBackupFolder && window.onBackupFolder("
+                + (label == null ? "null" : JSONObject.quote(label)) + ")", null);
+    }
+
     private void sendSteps(JSONObject data, String error) {
         String js = "window.onSteps && window.onSteps(" + (data == null ? "null" : data.toString()) + ","
                 + (error == null ? "null" : JSONObject.quote(error)) + ")";
@@ -305,8 +417,8 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode != REQ_STEPS) return;
-        if (Build.VERSION.SDK_INT >= 34 && stepsGranted()) readSteps(pendingStepsDays);
-        else sendSteps(null, "denied");
+        if (Build.VERSION.SDK_INT >= 34) readHealth(pendingStepsDays, true);
+        else sendSteps(null, "unsupported");
     }
 
     /** Methods index.html calls through window.FitAndroid. */
@@ -324,11 +436,86 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (Build.VERSION.SDK_INT < 34) { sendSteps(null, "unsupported"); return; }
                 int n = Math.max(1, Math.min(days, 60));
-                if (stepsGranted()) { readSteps(n); return; }
-                if (!ask) { sendSteps(null, "noperm"); return; }
-                pendingStepsDays = n;
-                requestPermissions(new String[]{READ_STEPS}, REQ_STEPS);
+                List<String> missing = new ArrayList<>();
+                if (!granted(READ_STEPS)) missing.add(READ_STEPS);
+                if (!granted(READ_SLEEP)) missing.add(READ_SLEEP);
+                if (ask && !missing.isEmpty()) {
+                    pendingStepsDays = n;
+                    requestPermissions(missing.toArray(new String[0]), REQ_STEPS);
+                    return;
+                }
+                readHealth(n, false);
             });
+        }
+
+        /** "unsupported", "granted" or "available" for reading sleep. */
+        @JavascriptInterface
+        public String sleepStatus() {
+            if (Build.VERSION.SDK_INT < 34) return "unsupported";
+            return granted(READ_SLEEP) ? "granted" : "available";
+        }
+
+        /* ----- automatic weekly backup into a folder she picks once ----- */
+
+        @JavascriptInterface
+        public void chooseBackupFolder() {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                try {
+                    startActivityForResult(i, REQ_TREE);
+                } catch (ActivityNotFoundException e) {
+                    sendFolder(null);
+                }
+            });
+        }
+
+        /** Name of the chosen folder, or "" when none is set (or access was lost). */
+        @JavascriptInterface
+        public String backupFolderName() {
+            Uri tree = backupFolder();
+            return tree == null ? "" : folderLabel(tree);
+        }
+
+        /** Writes the backup file into the chosen folder; reports window.onAutoBackup(true|false). */
+        @JavascriptInterface
+        public void autoBackup(final String name, final String text) {
+            new Thread(() -> {
+                boolean ok = writeToFolder(name, text);
+                runOnUiThread(() -> webView.evaluateJavascript("window.onAutoBackup && window.onAutoBackup(" + ok + ")", null));
+            }).start();
+        }
+
+        /* ----- home screen widget ----- */
+
+        /** Stores today's numbers for the widget (JSON prepared and translated by the page). */
+        @JavascriptInterface
+        public void updateWidget(String json) {
+            try {
+                JSONObject j = new JSONObject(json);
+                getSharedPreferences(WidgetProvider.PREFS, MODE_PRIVATE).edit()
+                        .putString("date", j.optString("date"))
+                        .putString("big", j.optString("big"))
+                        .putString("label", j.optString("label"))
+                        .putString("sub", j.optString("sub"))
+                        .putString("waterLabel", j.optString("waterLabel"))
+                        .putInt("waterMl", j.optInt("waterMl"))
+                        .putInt("waterGoal", j.optInt("waterGoal"))
+                        .putInt("glass", j.optInt("glass", 250))
+                        .apply();
+                WidgetProvider.refresh(MainActivity.this);
+            } catch (Exception ignored) {
+            }
+        }
+
+        /** Glasses of water added from the widget since the app last asked; resets the count. */
+        @JavascriptInterface
+        public int takeWidgetWater() {
+            SharedPreferences p = getSharedPreferences(WidgetProvider.PREFS, MODE_PRIVATE);
+            int n = p.getInt("pendingWater", 0);
+            if (n > 0) p.edit().putInt("pendingWater", 0).apply();
+            return n;
         }
 
         /** Installed version, shown in Settings. */
@@ -390,6 +577,16 @@ public class MainActivity extends Activity {
         if (requestCode == REQ_PICK_FILE && pendingPick != null) {
             pendingPick.onReceiveValue(uri != null ? new Uri[]{uri} : null);
             pendingPick = null;
+        } else if (requestCode == REQ_TREE) {
+            if (uri == null) { sendFolder(null); return; }
+            try {
+                getContentResolver().takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                getSharedPreferences("backup", MODE_PRIVATE).edit().putString("tree", uri.toString()).apply();
+                sendFolder(folderLabel(uri));
+            } catch (Exception e) {
+                sendFolder(null);
+            }
         } else if (requestCode == REQ_SAVE_FILE) {
             String text = pendingSaveText;
             pendingSaveText = null;

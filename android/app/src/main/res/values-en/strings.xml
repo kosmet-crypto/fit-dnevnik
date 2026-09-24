@@ -12,4 +12,7 @@
     <string name="update_checking">Checking for a new version…</string>
     <string name="update_none">You have the latest version (%1$s).</string>
     <string name="update_failed">Could not check. Check your internet connection and try again.</string>
+    <string name="widget_open">Open the app</string>
+    <string name="widget_desc">Calories, protein and water left today</string>
+    <string name="widget_add_water">+ glass</string>
 </resources>
