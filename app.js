@@ -1319,7 +1319,7 @@ const SOURCE_NAMES = {
   'com.xiaomi.wearable': 'Mi Fitness',
   'com.huawei.health': 'Huawei Health'
 };
-const sourceName = pkg => SOURCE_NAMES[pkg] || (/^(android|com\.android|com\.google\.android\.gms)/.test(pkg) ? t('телефон') : pkg.split('.').slice(-1)[0]);
+const sourceName = pkg => SOURCE_NAMES[pkg] || (pkg === 'com.google.android.gms' ? 'Google Play services' : /^(android|com\.android)/.test(pkg) ? t('телефон') : pkg);
 /** Данашњи кораци по изворима (ако их има више), да се види одакле стиже број. */
 function stepsSources() {
   const d = peek(todayKey());
@@ -1333,7 +1333,10 @@ function stepsWeekTable() {
   let sum = 0;
   const rows = ks.map(k => {
     const d = peek(k), v = d && d.steps || 0; sum += v;
-    return `<tr><td>${dayShort(wd(k))} ${dateShort(k)}</td><td class="r num">${v ? fmt(v) : '—'}</td><td class="r">${d && d.stepsSrc === 'hc' ? '📱' : d && d.steps ? '✍️' : ''}</td></tr>`;
+    const by = d && d.stepsBy ? Object.entries(d.stepsBy).sort((x, y) => y[1] - x[1]) : [];
+    // Испод дана: колико је који извор послао у Health Connect (за поређење са апликацијом која броји).
+    const src = by.length ? `<div class="faint tiny">${by.map(([p, n]) => esc(sourceName(p)) + ' ' + fmt(n)).join(' · ')}</div>` : '';
+    return `<tr><td>${dayShort(wd(k))} ${dateShort(k)}${src}</td><td class="r num">${v ? fmt(v) : '—'}</td><td class="r">${d && d.stepsSrc === 'hc' ? '📱' : d && d.steps ? '✍️' : ''}</td></tr>`;
   }).join('');
   return `<table class="t" style="margin-bottom:10px">${rows}<tr><td><b>${t('Укупно 7 дана')}</b></td><td class="r num"><b>${fmt(sum)}</b></td><td></td></tr></table>`;
 }
