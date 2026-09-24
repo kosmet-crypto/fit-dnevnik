@@ -1303,10 +1303,21 @@ function stepsCard() {
     const at = S.settings.stepsSyncedAt ? new Date(S.settings.stepsSyncedAt) : null;
     body = `<div class="small" style="margin-bottom:10px"><span class="pos">✓ ${t('Повезано')}</span> <span class="muted">· ${at ? t('учитано {a}', { a: pad2(at.getHours()) + ':' + pad2(at.getMinutes()) }) : ''}</span></div>
       <div class="muted small" style="margin-bottom:10px">${t('Кораци се учитавају сами кад отвориш апликацију. Ако неки дан упишеш ручно, важи твој број.')}</div>
+      ${stepsWeekTable()}
       <button class="btn block" data-s="steps">${t('Учитај сада')}</button>`;
   } else body = `<div class="muted small" style="margin-bottom:10px">${t('Апликација може сама да чита кораке које телефон броји (преко Health Connect). Први пут Android пита за дозволу: укључи „Кораци“.')}</div>
       <button class="btn primary block" data-s="steps">${t('Повежи кораке са телефона')}</button>`;
   return `<div class="card"><div class="card-head"><h2>👟 ${t('Кораци са телефона')}</h2></div>${body}</div>`;
+}
+/** Кораци последњих 7 дана, да може да упореди са апликацијом која их броји. */
+function stepsWeekTable() {
+  const ks = lastDays(todayKey(), 7).reverse();
+  let sum = 0;
+  const rows = ks.map(k => {
+    const d = peek(k), v = d && d.steps || 0; sum += v;
+    return `<tr><td>${dayShort(wd(k))} ${dateShort(k)}</td><td class="r num">${v ? fmt(v) : '—'}</td><td class="r">${d && d.stepsSrc === 'hc' ? '📱' : d && d.steps ? '✍️' : ''}</td></tr>`;
+  }).join('');
+  return `<table class="t" style="margin-bottom:10px">${rows}<tr><td><b>${t('Укупно 7 дана')}</b></td><td class="r num"><b>${fmt(sum)}</b></td><td></td></tr></table>`;
 }
 function setLang(l) { S.settings.lang = l; save(); render(); }
 $('#view').addEventListener('click', e => {
