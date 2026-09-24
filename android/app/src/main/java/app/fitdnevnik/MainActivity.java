@@ -3,11 +3,13 @@ package app.fitdnevnik;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.health.connect.AggregateRecordsRequest;
 import android.health.connect.AggregateRecordsResponse;
@@ -41,11 +43,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -74,6 +72,7 @@ public class MainActivity extends Activity {
     private static final String READ_SLEEP = "android.permission.health.READ_SLEEP";
 
     private WebView webView;
+    private WebUpdater web;
     private ValueCallback<Uri[]> pendingPick;
     private String pendingSaveText;
     private int pendingStepsDays;
@@ -82,8 +81,12 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        web = new WebUpdater(this);
+        if (savedInstanceState == null) web.cleanup();
+        // Downloaded (newer) web content first; the copy bundled in the APK otherwise.
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
+                .addPathHandler("/assets/www/", path -> web.serve(path))
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
@@ -147,12 +150,13 @@ public class MainActivity extends Activity {
 
     /* ---------- update check ---------- */
 
-    private static final long UPDATE_CHECK_INTERVAL = 12 * 60 * 60 * 1000L;
+    private static final long UPDATE_CHECK_INTERVAL = 60 * 60 * 1000L;
 
     /**
-     * Looks up the latest GitHub Release (tagged v1.0.<versionCode>) and offers to download it
-     * when it is newer than this install. The automatic check runs at most twice a day and is
-     * silent when offline; a manual check (button in Settings) always runs and reports the result.
+     * Checks the latest GitHub Release. Web-only changes are downloaded silently and used from
+     * the next start (right away after a manual check); a changed Android part needs the APK,
+     * which is offered in a dialog and installed from inside the app. The automatic check runs
+     * at most once an hour and is silent; the manual one (Settings) reports its result.
      */
     private void checkForUpdate(final boolean manual) {
         final SharedPreferences prefs = getSharedPreferences("update", MODE_PRIVATE);
@@ -163,29 +167,35 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             try {
-                URL api = new URL("https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases/latest");
-                HttpURLConnection c = (HttpURLConnection) api.openConnection();
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(8000);
-                c.setRequestProperty("Accept", "application/vnd.github+json");
-                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
-                String body;
-                try (InputStream in = c.getInputStream()) {
-                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
-                    byte[] b = new byte[8192];
-                    for (int n; (n = in.read(b)) > 0; ) buf.write(b, 0, n);
-                    body = buf.toString("UTF-8");
+                JSONObject m = WebUpdater.fetchManifest();
+                final int version = m.getInt("version");
+                final String name = "1.0." + version;
+                if (m.optInt("native", 0) > installedVersionCode()) {
+                    runOnUiThread(() -> showUpdateDialog(name));
+                } else if (version > web.latestVersion()) {
+                    boolean ok = web.install(m);
+                    if (manual) runOnUiThread(() -> {
+                        if (ok) {
+                            web.useLatest();
+                            Toast.makeText(this, getString(R.string.update_applied, name), Toast.LENGTH_LONG).show();
+                            webView.reload();
+                        } else {
+                            Toast.makeText(this, R.string.update_failed, Toast.LENGTH_LONG).show();
+                        }
+                    });
+                } else if (manual && web.latestVersion() > web.contentVersion()) {
+                    // Downloaded earlier in the background: switch to it now.
+                    runOnUiThread(() -> {
+                        web.useLatest();
+                        Toast.makeText(this, getString(R.string.update_applied, name), Toast.LENGTH_LONG).show();
+                        webView.reload();
+                    });
+                } else if (manual) {
+                    runOnUiThread(() -> Toast.makeText(this,
+                            getString(R.string.update_none, "1.0." + web.contentVersion()), Toast.LENGTH_LONG).show());
                 }
-                String tag = new JSONObject(body).optString("tag_name", "");
-                int dot = tag.lastIndexOf('.');
-                if (dot < 0) throw new Exception("Unexpected tag " + tag);
-                final long latest = Long.parseLong(tag.substring(dot + 1));
-                final String name = tag.startsWith("v") ? tag.substring(1) : tag;
-                if (latest > installedVersionCode()) runOnUiThread(() -> showUpdateDialog(name));
-                else if (manual) runOnUiThread(() -> Toast.makeText(this,
-                        getString(R.string.update_none, BuildConfig.VERSION_NAME), Toast.LENGTH_LONG).show());
             } catch (Exception e) {
-                // No network, rate limit or unexpected response: the automatic check tries again next time.
+                // No network or an older release without web.json: the automatic check tries again later.
                 if (manual) runOnUiThread(() -> Toast.makeText(this, R.string.update_failed, Toast.LENGTH_LONG).show());
             }
         }).start();
@@ -200,17 +210,50 @@ public class MainActivity extends Activity {
         if (isFinishing()) return;
         new AlertDialog.Builder(this)
                 .setTitle(R.string.update_title)
-                .setMessage(getString(R.string.update_message, version, BuildConfig.VERSION_NAME))
-                .setPositiveButton(R.string.update_download, (d, w) -> {
-                    Uri apk = Uri.parse("https://github.com/" + BuildConfig.UPDATE_REPO
-                            + "/releases/latest/download/fit-dnevnik.apk");
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, apk));
-                    } catch (ActivityNotFoundException ignored) {
-                    }
-                })
+                .setMessage(getString(R.string.update_message, version, "1.0." + web.contentVersion()))
+                .setPositiveButton(R.string.update_download, (d, w) -> installApkUpdate())
                 .setNegativeButton(R.string.update_later, null)
                 .show();
+    }
+
+    /**
+     * Downloads the new APK and hands it to Android's package installer. Android asks for a
+     * single confirmation (and, the very first time, to allow installs from this app); the app
+     * restarts on the new version with all data in place. Falls back to the browser download.
+     */
+    private void installApkUpdate() {
+        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            try {
+                byte[] apk = WebUpdater.download(WebUpdater.BASE + "fit-dnevnik.apk");
+                PackageInstaller installer = getPackageManager().getPackageInstaller();
+                PackageInstaller.SessionParams params =
+                        new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                params.setAppPackageName(getPackageName());
+                if (Build.VERSION.SDK_INT >= 31) {
+                    params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                }
+                int id = installer.createSession(params);
+                try (PackageInstaller.Session session = installer.openSession(id)) {
+                    try (OutputStream out = session.openWrite("update.apk", 0, apk.length)) {
+                        out.write(apk);
+                        session.fsync(out);
+                    }
+                    int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                            | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                    Intent result = new Intent(this, InstallReceiver.class);
+                    session.commit(PendingIntent.getBroadcast(this, id, result, flags).getIntentSender());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    Toast.makeText(this, R.string.update_install_failed, Toast.LENGTH_LONG).show();
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(WebUpdater.BASE + "fit-dnevnik.apk")));
+                    } catch (ActivityNotFoundException ignored) {
+                    }
+                });
+            }
+        }).start();
     }
 
     /* ---------- steps from Health Connect (built into Android 14+) ---------- */
@@ -521,7 +564,7 @@ public class MainActivity extends Activity {
         /** Installed version, shown in Settings. */
         @JavascriptInterface
         public String getVersion() {
-            return BuildConfig.VERSION_NAME;
+            return "1.0." + web.contentVersion();
         }
 
         /** "Check for updates" button in Settings. */

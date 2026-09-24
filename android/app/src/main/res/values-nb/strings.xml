@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Treningsdagbok</string>
     <string name="update_title">Ny versjon</string>
-    <string name="update_message">Versjon %1$s er klar (du har %2$s). Vil du oppdatere appen nå? Last ned filen og åpne den for å installere. Dataene dine blir liggende.</string>
+    <string name="update_message">Versjon %1$s er klar (du har %2$s). Denne oppdateringen endrer også Android-delen og må installeres. Oppdatere nå? Dataene dine blir liggende.</string>
     <string name="update_download">Oppdater nå</string>
     <string name="update_later">Senere</string>
     <string name="no_file_app">Ingen app for å lagre filer</string>
@@ -15,4 +15,7 @@
     <string name="widget_open">Åpne appen</string>
     <string name="widget_desc">Kalorier, protein og vann igjen i dag</string>
     <string name="widget_add_water">+ glass</string>
+    <string name="update_downloading">Laster ned ny versjon…</string>
+    <string name="update_install_failed">Oppdateringen mislyktes. Åpner nedlastingen i nettleseren.</string>
+    <string name="update_applied">Oppdatert til versjon %1$s ✓</string>
 </resources>

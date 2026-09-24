@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Фит дневник</string>
     <string name="update_title">Нова верзија</string>
-    <string name="update_message">Нова верзија %1$s је спремна (сада имаш %2$s). Да ли желиш да ажурираш апликацију сада? Преузми фајл и отвори га да се инсталира. Подаци остају на месту.</string>
+    <string name="update_message">Нова верзија %1$s је спремна (сада имаш %2$s). Ова измена мења и Android део, па је потребна инсталација. Ажурирати сада? Подаци остају на месту.</string>
     <string name="update_download">Ажурирај сада</string>
     <string name="update_later">Касније</string>
     <string name="no_file_app">Нема апликације за чување фајлова</string>
@@ -15,4 +15,7 @@
     <string name="widget_open">Отвори апликацију</string>
     <string name="widget_desc">Преостале калорије, протеин и вода за данас</string>
     <string name="widget_add_water">+ чаша</string>
+    <string name="update_downloading">Преузимам нову верзију…</string>
+    <string name="update_install_failed">Ажурирање није успело. Отварам преузимање у прегледачу.</string>
+    <string name="update_applied">Ажурирано на верзију %1$s ✓</string>
 </resources>

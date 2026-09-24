@@ -38,11 +38,27 @@ jobs:
 
       # Each build on main becomes a GitHub Release, so the newest APK is always at
       # https://github.com/<owner>/<repo>/releases/latest/download/fit-dnevnik.apk
+      # The release also carries the web files and web.json, which the installed app uses for
+      # silent content updates. "native" is the build number of the last change under android/;
+      # only when it is newer than the installed APK does the app ask to install a new APK.
       - name: Publish release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v1.0.${{ github.run_number }}" fit-dnevnik.apk \
-            --title "Фит дневник 1.0.${{ github.run_number }}" \
+          set -e
+          RUN=${{ github.run_number }}
+          TREE=$(git rev-parse HEAD:android)
+          mkdir -p prev
+          gh release download --pattern web.json --dir prev || true
+          PREV_TREE=$(jq -r '.androidTree // ""' prev/web.json 2>/dev/null || echo "")
+          PREV_NATIVE=$(jq -r '.native // 0' prev/web.json 2>/dev/null || echo 0)
+          if [ "$TREE" = "$PREV_TREE" ]; then NATIVE=$PREV_NATIVE; else NATIVE=$RUN; fi
+          FILES="index.html app.js foods.js i18n.js"
+          HASHES=$(for f in $FILES; do jq -n --arg f "$f" --arg h "$(sha256sum "$f" | cut -d' ' -f1)" '{($f): $h}'; done | jq -s add)
+          jq -n --argjson v "$RUN" --argjson n "$NATIVE" --arg tree "$TREE" --argjson files "$HASHES" \
+            '{version: $v, native: $n, androidTree: $tree, files: $files}' > web.json
+          cat web.json
+          gh release create "v1.0.$RUN" fit-dnevnik.apk web.json $FILES \
+            --title "Фит дневник 1.0.$RUN" \
             --notes "Android build of commit ${{ github.sha }}. Download fit-dnevnik.apk below and open it on your phone to install or update."
