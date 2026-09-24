@@ -82,6 +82,8 @@ window.TR = {
   "Кораци нису учитани. Покушај поново.": ["Steps were not loaded. Try again.", "Skrittene ble ikke lastet inn. Prøv igjen."],
   "Кораци су учитани ✓": ["Steps loaded ✓", "Skritt lastet inn ✓"],
   "Телефон још нема забележене кораке. Провери да ли апликација која броји кораке шаље податке у Health Connect.": ["The phone has no steps recorded yet. Check that the app counting your steps shares its data with Health Connect.", "Telefonen har ingen registrerte skritt ennå. Sjekk at appen som teller skritt deler dataene med Health Connect."],
+  "Данас по изворима:": ["Today by source:", "I dag per kilde:"],
+  "телефон": ["phone", "telefon"],
   "Укупно 7 дана": ["Total 7 days", "Totalt 7 dager"],
   "Још данас:": ["Also today:", "Også i dag:"],
   "Апликација": ["App", "App"],

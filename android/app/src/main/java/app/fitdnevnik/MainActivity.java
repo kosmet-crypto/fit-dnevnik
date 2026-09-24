@@ -13,6 +13,7 @@ import android.health.connect.AggregateRecordsResponse;
 import android.health.connect.HealthConnectException;
 import android.health.connect.HealthConnectManager;
 import android.health.connect.TimeInstantRangeFilter;
+import android.health.connect.datatypes.DataOrigin;
 import android.health.connect.datatypes.StepsRecord;
 import android.net.Uri;
 import android.os.Build;
@@ -44,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Set;
 
 /**
  * Hosts the Fit dnevnik web app (bundled in assets/www) in a full-screen WebView.
@@ -206,9 +208,11 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Reads the total steps of each of the last {@code days} days (today up to now) and passes
-     * {"yyyy-mm-dd": steps} to window.onSteps(data, error). Health Connect itself merges the
-     * sources (phone, Google Fit, Samsung Health, watch) without counting steps twice.
+     * Reads the steps of each of the last {@code days} days (today up to now) and passes
+     * {"yyyy-mm-dd": {"t": total, "by": {"package": steps}}} to window.onSteps(data, error).
+     * "t" is Health Connect's own merged total; "by" is each source (Google Fit, the phone,
+     * Samsung Health, a watch) on its own, because the merged total can pick a source that
+     * counted fewer steps. The page uses the largest of them and never adds sources together.
      */
     @TargetApi(34)
     private void readSteps(int days) {
@@ -216,33 +220,79 @@ public class MainActivity extends Activity {
         if (hc == null) { sendSteps(null, "unsupported"); return; }
         final JSONObject out = new JSONObject();
         final int[] left = {days};
+        final int[] errors = {0};
         ZoneId zone = ZoneId.systemDefault();
         LocalDate today = LocalDate.now(zone);
         for (int i = 0; i < days; i++) {
             final LocalDate d = today.minusDays(i);
             Instant start = d.atStartOfDay(zone).toInstant();
             Instant end = i == 0 ? Instant.now() : d.plusDays(1).atStartOfDay(zone).toInstant();
-            AggregateRecordsRequest<Long> req = new AggregateRecordsRequest.Builder<Long>(
-                    new TimeInstantRangeFilter.Builder().setStartTime(start).setEndTime(end).build())
-                    .addAggregationType(StepsRecord.STEPS_COUNT_TOTAL)
-                    .build();
-            hc.aggregate(req, getMainExecutor(), new OutcomeReceiver<AggregateRecordsResponse<Long>, HealthConnectException>() {
-                @Override
-                public void onResult(AggregateRecordsResponse<Long> r) {
-                    Long v = r.get(StepsRecord.STEPS_COUNT_TOTAL);
+            readDay(hc, start, end, (total, by) -> {
+                if (total < 0) errors[0]++;
+                else if (total > 0 || by.length() > 0) {
                     try {
-                        if (v != null && v > 0) out.put(d.toString(), v);
+                        out.put(d.toString(), new JSONObject().put("t", total).put("by", by));
                     } catch (Exception ignored) {
                     }
-                    if (--left[0] == 0) sendSteps(out, null);
                 }
-
-                @Override
-                public void onError(HealthConnectException e) {
-                    if (--left[0] == 0) sendSteps(out, out.length() == 0 ? "error" : null);
-                }
+                if (--left[0] == 0) sendSteps(out, out.length() == 0 && errors[0] > 0 ? "error" : null);
             });
         }
+    }
+
+    private interface DaySteps {
+        /** {@code total} is -1 when Health Connect returned an error. */
+        void done(long total, JSONObject bySource);
+    }
+
+    @TargetApi(34)
+    private static AggregateRecordsRequest<Long> stepsRequest(Instant start, Instant end, DataOrigin origin) {
+        AggregateRecordsRequest.Builder<Long> b = new AggregateRecordsRequest.Builder<Long>(
+                new TimeInstantRangeFilter.Builder().setStartTime(start).setEndTime(end).build())
+                .addAggregationType(StepsRecord.STEPS_COUNT_TOTAL);
+        if (origin != null) b.addDataOriginsFilter(origin);
+        return b.build();
+    }
+
+    /** Merged total for one day, then the same day per source that contributed steps. */
+    @TargetApi(34)
+    private void readDay(final HealthConnectManager hc, final Instant start, final Instant end, final DaySteps cb) {
+        hc.aggregate(stepsRequest(start, end, null), getMainExecutor(),
+                new OutcomeReceiver<AggregateRecordsResponse<Long>, HealthConnectException>() {
+                    @Override
+                    public void onResult(AggregateRecordsResponse<Long> r) {
+                        Long v = r.get(StepsRecord.STEPS_COUNT_TOTAL);
+                        final long total = v == null ? 0 : v;
+                        final JSONObject by = new JSONObject();
+                        Set<DataOrigin> origins = r.getDataOrigins(StepsRecord.STEPS_COUNT_TOTAL);
+                        if (origins == null || origins.isEmpty()) { cb.done(total, by); return; }
+                        final int[] left = {origins.size()};
+                        for (final DataOrigin o : origins) {
+                            hc.aggregate(stepsRequest(start, end, o), getMainExecutor(),
+                                    new OutcomeReceiver<AggregateRecordsResponse<Long>, HealthConnectException>() {
+                                        @Override
+                                        public void onResult(AggregateRecordsResponse<Long> ro) {
+                                            Long n = ro.get(StepsRecord.STEPS_COUNT_TOTAL);
+                                            try {
+                                                if (n != null && n > 0) by.put(o.getPackageName(), n);
+                                            } catch (Exception ignored) {
+                                            }
+                                            if (--left[0] == 0) cb.done(total, by);
+                                        }
+
+                                        @Override
+                                        public void onError(HealthConnectException e) {
+                                            if (--left[0] == 0) cb.done(total, by);
+                                        }
+                                    });
+                        }
+                    }
+
+                    @Override
+                    public void onError(HealthConnectException e) {
+                        cb.done(-1, new JSONObject());
+                    }
+                });
     }
 
     private void sendSteps(JSONObject data, String error) {

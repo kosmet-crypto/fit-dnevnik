@@ -1303,11 +1303,29 @@ function stepsCard() {
     const at = S.settings.stepsSyncedAt ? new Date(S.settings.stepsSyncedAt) : null;
     body = `<div class="small" style="margin-bottom:10px"><span class="pos">✓ ${t('Повезано')}</span> <span class="muted">· ${at ? t('учитано {a}', { a: pad2(at.getHours()) + ':' + pad2(at.getMinutes()) }) : ''}</span></div>
       <div class="muted small" style="margin-bottom:10px">${t('Кораци се учитавају сами кад отвориш апликацију. Ако неки дан упишеш ручно, важи твој број.')}</div>
+      ${stepsSources()}
       ${stepsWeekTable()}
       <button class="btn block" data-s="steps">${t('Учитај сада')}</button>`;
   } else body = `<div class="muted small" style="margin-bottom:10px">${t('Апликација може сама да чита кораке које телефон броји (преко Health Connect). Први пут Android пита за дозволу: укључи „Кораци“.')}</div>
       <button class="btn primary block" data-s="steps">${t('Повежи кораке са телефона')}</button>`;
   return `<div class="card"><div class="card-head"><h2>👟 ${t('Кораци са телефона')}</h2></div>${body}</div>`;
+}
+const SOURCE_NAMES = {
+  'com.google.android.apps.fitness': 'Google Fit',
+  'com.sec.android.app.shealth': 'Samsung Health',
+  'com.google.android.apps.healthdata': 'Health Connect',
+  'com.google.android.healthconnect.controller': 'Health Connect',
+  'com.fitbit.FitbitMobile': 'Fitbit',
+  'com.xiaomi.wearable': 'Mi Fitness',
+  'com.huawei.health': 'Huawei Health'
+};
+const sourceName = pkg => SOURCE_NAMES[pkg] || (/^(android|com\.android|com\.google\.android\.gms)/.test(pkg) ? t('телефон') : pkg.split('.').slice(-1)[0]);
+/** Данашњи кораци по изворима (ако их има више), да се види одакле стиже број. */
+function stepsSources() {
+  const d = peek(todayKey());
+  const by = d && d.stepsBy ? Object.entries(d.stepsBy) : [];
+  if (!by.length) return '';
+  return `<div class="muted small" style="margin-bottom:10px">${t('Данас по изворима:')} ${by.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(sourceName(k))} <b class="num">${fmt(v)}</b>`).join(' · ')}</div>`;
 }
 /** Кораци последњих 7 дана, да може да упореди са апликацијом која их броји. */
 function stepsWeekTable() {
@@ -1498,8 +1516,14 @@ window.onSteps = (data, err) => {
     return;
   }
   let n = 0;
-  for (const [k, v] of Object.entries(data || {})) {
+  for (const [k, raw] of Object.entries(data || {})) {
+    // Нова верзија шаље {t: збир Health Connect-а, by: {извор: кораци}}; узима се највећи број,
+    // јер Health Connect понекад изабере извор који је избројао мање (извори се не сабирају).
+    const by = raw && typeof raw === 'object' ? raw.by || {} : {};
+    const v = Math.max(typeof raw === 'number' ? raw : raw.t || 0, ...Object.values(by).map(Number));
+    if (!(v > 0)) continue;
     const d = day(k);
+    if (Object.keys(by).length) d.stepsBy = by; else delete d.stepsBy;
     // Број који је она сама уписала се не мења.
     if (d.stepsSrc === 'manual' && d.steps) continue;
     if (d.steps !== v) { d.steps = v; n++; }
