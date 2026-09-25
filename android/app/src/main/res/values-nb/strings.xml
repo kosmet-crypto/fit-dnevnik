@@ -16,6 +16,7 @@
     <string name="widget_desc">Kalorier, protein og vann igjen i dag</string>
     <string name="widget_add_water">+ glass</string>
     <string name="update_downloading">Laster ned ny versjon…</string>
-    <string name="update_install_failed">Oppdateringen mislyktes. Åpner nedlastingen i nettleseren.</string>
+    <string name="update_install_failed">Oppdateringen mislyktes. Prøv igjen senere.</string>
+    <string name="update_retry">Åpner installasjonen…</string>
     <string name="update_applied">Oppdatert til versjon %1$s ✓</string>
 </resources>
