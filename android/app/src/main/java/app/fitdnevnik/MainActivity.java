@@ -217,43 +217,12 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Downloads the new APK and hands it to Android's package installer. Android asks for a
-     * single confirmation (and, the very first time, to allow installs from this app); the app
-     * restarts on the new version with all data in place. Falls back to the browser download.
+     * Downloads the new APK and hands it to Android's package installer (see InstallReceiver).
+     * The app restarts on the new version with all data in place. No browser involved.
      */
     private void installApkUpdate() {
         Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_LONG).show();
-        new Thread(() -> {
-            try {
-                byte[] apk = WebUpdater.download(WebUpdater.BASE + "fit-dnevnik.apk");
-                PackageInstaller installer = getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams params =
-                        new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                params.setAppPackageName(getPackageName());
-                if (Build.VERSION.SDK_INT >= 31) {
-                    params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-                }
-                int id = installer.createSession(params);
-                try (PackageInstaller.Session session = installer.openSession(id)) {
-                    try (OutputStream out = session.openWrite("update.apk", 0, apk.length)) {
-                        out.write(apk);
-                        session.fsync(out);
-                    }
-                    int flags = PendingIntent.FLAG_UPDATE_CURRENT
-                            | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    Intent result = new Intent(this, InstallReceiver.class);
-                    session.commit(PendingIntent.getBroadcast(this, id, result, flags).getIntentSender());
-                }
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    Toast.makeText(this, R.string.update_install_failed, Toast.LENGTH_LONG).show();
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(WebUpdater.BASE + "fit-dnevnik.apk")));
-                    } catch (ActivityNotFoundException ignored) {
-                    }
-                });
-            }
-        }).start();
+        InstallReceiver.install(this, true);
     }
 
     /* ---------- steps from Health Connect (built into Android 14+) ---------- */
