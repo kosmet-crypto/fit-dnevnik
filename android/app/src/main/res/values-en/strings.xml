@@ -13,8 +13,7 @@
     <string name="update_none">You have the latest version (%1$s).</string>
     <string name="update_failed">Could not check. Check your internet connection and try again.</string>
     <string name="widget_open">Open the app</string>
-    <string name="widget_desc">Calories, protein and water left today</string>
-    <string name="widget_add_water">+ glass</string>
+    <string name="widget_desc">Calories and protein left today</string>
     <string name="update_downloading">Downloading the new version…</string>
     <string name="update_install_failed">The update failed. Try again later.</string>
     <string name="update_retry">Opening the installer…</string>

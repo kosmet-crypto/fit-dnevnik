@@ -13,8 +13,7 @@
     <string name="update_none">Du har nyeste versjon (%1$s).</string>
     <string name="update_failed">Kunne ikke sjekke. Sjekk internettforbindelsen og prøv igjen.</string>
     <string name="widget_open">Åpne appen</string>
-    <string name="widget_desc">Kalorier, protein og vann igjen i dag</string>
-    <string name="widget_add_water">+ glass</string>
+    <string name="widget_desc">Kalorier og protein igjen i dag</string>
     <string name="update_downloading">Laster ned ny versjon…</string>
     <string name="update_install_failed">Oppdateringen mislyktes. Prøv igjen senere.</string>
     <string name="update_retry">Åpner installasjonen…</string>

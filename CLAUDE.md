@@ -14,7 +14,7 @@ The owner talks to Claude in Serbian (Cyrillic); answer in Serbian.
   - `MainActivity.java`: WebView, `window.FitAndroid` bridge, update check, Health Connect (steps, sleep),
     backup folder (SAF), barcode scanner (Google code scanner).
   - `WebUpdater.java`: silent web-content updates; `InstallReceiver.java`: in-app APK install.
-  - `WidgetProvider.java` + `res/layout/widget.xml`: home screen widget.
+  - `WidgetProvider.java` + `res/layout/widget.xml`: home screen widget (kcal and protein left).
 - `.github/workflows/android.yml`: builds the APK on every push to `main` and publishes a release.
 
 ## Rules for changes
@@ -51,6 +51,12 @@ The owner talks to Claude in Serbian (Cyrillic); answer in Serbian.
 - Steps and sleep come from Health Connect (Android 14+). Each source is read separately and the
   largest number is used; sources are never added. A number she typed for a day always wins.
 - Online food search (Open Food Facts) sends Cyrillic as Latin.
+- Removed on purpose (don't bring back): water tracking (app and widget), mood and day notes,
+  per-source step numbers in Settings, extra Statistics tiles (only balance, days in target,
+  protein, steps). Old backups may still contain `water`, `mood`, `note`, `stepsBy`; they are ignored.
+- Day screen order: rings, one tip, meals, workouts, steps/sleep, balance, activities, weight/waist.
+- Deleting a meal, activity, food, recipe, routine or measurement asks nothing but shows "Поништи"
+  (undo) in the toast; only "Обриши све податке" asks for confirmation.
 
 ## Testing
 No Android SDK in the container, so the APK is only built by CI. Test the web app with Playwright

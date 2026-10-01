@@ -13,8 +13,7 @@
     <string name="update_none">Имаш најновију верзију (%1$s).</string>
     <string name="update_failed">Провера није успела. Провери интернет и покушај поново.</string>
     <string name="widget_open">Отвори апликацију</string>
-    <string name="widget_desc">Преостале калорије, протеин и вода за данас</string>
-    <string name="widget_add_water">+ чаша</string>
+    <string name="widget_desc">Преостале калорије и протеин за данас</string>
     <string name="update_downloading">Преузимам нову верзију…</string>
     <string name="update_install_failed">Ажурирање није успело. Покушај поново касније.</string>
     <string name="update_retry">Отварам инсталацију…</string>
