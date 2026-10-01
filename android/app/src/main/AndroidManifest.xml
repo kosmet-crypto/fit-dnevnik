@@ -44,7 +44,7 @@
             android:name=".InstallReceiver"
             android:exported="false" />
 
-        <!-- Home screen widget: calories and protein left, water. -->
+        <!-- Home screen widget: calories and protein left. -->
         <receiver
             android:name=".WidgetProvider"
             android:exported="false">

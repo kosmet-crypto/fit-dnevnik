@@ -129,8 +129,8 @@ public class MainActivity extends Activity {
                 pendingPick = callback;
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
-                // The page accepts JSON, CSV, text and .xlsx; MIME types for those vary by
-                // file manager, so allow any file and let the page validate it.
+                // Backup files are JSON, but file managers report varying MIME types for them,
+                // so allow any file and let the page validate it.
                 i.setType("*/*");
                 try {
                     startActivityForResult(i, REQ_PICK_FILE);
@@ -511,23 +511,10 @@ public class MainActivity extends Activity {
                         .putString("big", j.optString("big"))
                         .putString("label", j.optString("label"))
                         .putString("sub", j.optString("sub"))
-                        .putString("waterLabel", j.optString("waterLabel"))
-                        .putInt("waterMl", j.optInt("waterMl"))
-                        .putInt("waterGoal", j.optInt("waterGoal"))
-                        .putInt("glass", j.optInt("glass", 250))
                         .apply();
                 WidgetProvider.refresh(MainActivity.this);
             } catch (Exception ignored) {
             }
-        }
-
-        /** Glasses of water added from the widget since the app last asked; resets the count. */
-        @JavascriptInterface
-        public int takeWidgetWater() {
-            SharedPreferences p = getSharedPreferences(WidgetProvider.PREFS, MODE_PRIVATE);
-            int n = p.getInt("pendingWater", 0);
-            if (n > 0) p.edit().putInt("pendingWater", 0).apply();
-            return n;
         }
 
         /** Installed version, shown in Settings. */
