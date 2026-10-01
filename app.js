@@ -176,6 +176,9 @@ const itemLine = it => !it.fid ? t('ручно')
   : it.pc ? fmt(it.pc[1], 1) + ' × ' + porName(it.pc[0]) + ' (' + fmt(it.g) + ' ' + (it.unit || 'g') + ')'
   : fmt(it.g) + ' ' + (it.unit || 'g');
 const PA = () => t('g П');
+/** Збир калорија и протеина за листу ставки. */
+const sumItems = items => items.reduce((s, i) => ({ kcal: s.kcal + (i.kcal || 0), p: s.p + (i.p || 0) }), { kcal: 0, p: 0 });
+const avg = (arr, f) => arr.length ? arr.reduce((s, c) => s + f(c), 0) / arr.length : null;
 
 /* ================= математика ================= */
 function peek(k) { return S.days[k] || null; }
@@ -209,8 +212,7 @@ function protRange() {
 function calc(k) {
   const d = peek(k) || { meals: [], acts: [], skip: [] };
   const w = weightOn(k);
-  let kcal = 0, p = 0;
-  for (const m of d.meals || []) for (const it of m.items) { kcal += it.kcal || 0; p += it.p || 0; }
+  const { kcal, p } = sumItems((d.meals || []).flatMap(m => m.items));
   const rest = bmr(w) * (S.profile.level || 1.2);
   const st = stepsKcal(d.steps, w);
   let ak = 0, amin = 0;
@@ -232,7 +234,23 @@ function routineState(k, r) {
   if ((d.skip || []).includes(r.id)) return 'skip';
   return 'pending';
 }
+const waterGoal = () => S.profile.water || 2250;
+const glassMl = () => S.profile.glass || 250;
 const inTarget = c => c.logged && c.kcal <= target() + 50;
+/** Колико планираних тренинга је одрађено. Рачунају се само дани које је водила (иначе би празни дани
+    изгледали као пропуштени тренинзи), а данашњи тренинг који још чека одговор се не броји. */
+function routineTally(cs) {
+  let sched = 0, done = 0;
+  for (const c of cs) {
+    if (!c.logged && !(c.d.acts || []).length) continue;
+    for (const r of routinesOn(c.k)) {
+      const st = routineState(c.k, r);
+      if (st === 'pending' && c.k === todayKey()) continue;
+      sched++; if (st === 'done') done++;
+    }
+  }
+  return { sched, done };
+}
 function fatText(kcal) { const g = kcal / 7.7; return g >= 1000 ? fmt(g / 1000, 1) + ' kg' : fmt(Math.round(g / 10) * 10) + ' g'; }
 
 /* ================= UI стање и навигација ================= */
@@ -320,7 +338,7 @@ function tipsFor(c) {
   if (heavy && rem > -150) out.push(['💃', t('Данас трошиш више због тренинга/плеса. Слободно додај 150–200 kcal, најбоље протеин пре или после.')]);
   if (short) out.push(['👏', t('Скраћен тренинг је и даље тренинг. Доследност је важнија од савршенства.')]);
   if (hour >= 20 && c.logged && c.kcal < 1200) out.push(['⚠️', t('До сада само {a} kcal. Превелики дефицит умара и топи мишиће. Поједи још нешто лагано и протеинско.', { a: fmt(c.kcal) })]);
-  const wgoal = S.profile.water || 2250;
+  const wgoal = waterGoal();
   if (hour >= 15 && c.water < wgoal / 2) out.push(['💧', t('Попила си {a} L од {b} L. Чаша воде сада?', { a: fmt(c.water / 1000, 2), b: fmt(wgoal / 1000, 2) })]);
   if (c.d.sleep && c.d.sleep < 360) out.push(['😴', t('Спавала си само {a}. Мање сна обично значи већу глад, зато данас бирај ситније протеинске оброке и доста воде.', { a: sleepText(c.d.sleep) })]);
   if (hour >= 17 && c.steps && c.steps < 7000) {
@@ -409,13 +427,13 @@ function renderToday() {
   const extra = S.routines.filter(r => !routinesOn(k).includes(r) && routineState(k, r) !== 'done');
   if (extra.length) h += `<div class="chips" style="margin:4px 0 12px;align-items:center"><span class="muted small">${t('Још данас:')}</span>${extra.map(r => `<button class="chip" data-ryes="${r.id}">+ ${esc(r.name)}</button>`).join('')}</div>`;
 
-  const wgoal = S.profile.water || 2250;
+  const wgoal = waterGoal();
   h += `<div class="tiles">
     <button class="tile" data-act="steps"><span class="tl">👟 ${t('Кораци')}</span><span class="tv num">${c.d.steps ? fmt(c.d.steps) : '—'}</span>
       <span class="ts">${c.d.steps ? (c.d.stepsSrc === 'hc' ? '📱 ' : '') + '≈ ' + fmt(c.st) + ' kcal' : t('тапни да упишеш')}</span></button>
     <div class="tile"><span class="tl">💧 ${t('Вода')}</span><span class="tv num">${fmt(c.water / 1000, 2)} L</span>
       <div class="bar"><i style="width:${Math.min(100, c.water / wgoal * 100)}%;background:var(--water)"></i></div>
-      <div class="water-ctrl"><button data-water="-1" aria-label="${t('Мање')}">−</button><span class="ts" style="flex:1;text-align:center">${S.profile.glass || 250} ml</span><button data-water="1" aria-label="${t('Више')}">+</button></div></div>
+      <div class="water-ctrl"><button data-water="-1" aria-label="${t('Мање')}">−</button><span class="ts" style="flex:1;text-align:center">${glassMl()} ml</span><button data-water="1" aria-label="${t('Више')}">+</button></div></div>
     ${c.d.sleep ? `<div class="tile" style="grid-column:span 2;min-height:0;flex-direction:row;align-items:center;justify-content:space-between"><span class="tl">😴 ${t('Сан прошле ноћи')}</span><span class="tv num" style="font-size:18px">${sleepText(c.d.sleep)}</span></div>` : ''}
   </div>`;
 
@@ -423,7 +441,7 @@ function renderToday() {
   h += `<div class="sec"><h2>${t('Оброци')}</h2><span class="muted small num">${fmt(c.kcal)} kcal · ${t('{a} g протеина', { a: fmt(c.p) })}</span></div>`;
   if (!meals.length) h += `<div class="empty">${t('Нема унетих оброка.')}<br>${t('Тапни „+ Оброк“ доле десно.')}</div>`;
   for (const m of meals) {
-    const mk = m.items.reduce((s, i) => s + i.kcal, 0), mp = m.items.reduce((s, i) => s + i.p, 0);
+    const { kcal: mk, p: mp } = sumItems(m.items);
     h += `<div class="meal"><button class="meal-h" data-meal="${m.id}"><div><b>${esc(t(m.slot))}</b> <span class="mt">${esc(m.time || '')}</span></div>
       <span class="num small"><b>${fmt(mk)}</b> kcal · <span class="prot">${fmt(mp)} g</span></span></button>
       <ul>${m.items.map(i => `<li><span>${esc(itemName(i))} <span class="faint">${esc(itemLine(i))}</span></span><span class="num">${fmt(i.kcal)}</span></li>`).join('')}</ul>
@@ -486,7 +504,7 @@ $('#view').addEventListener('click', e => {
   if (ds.rno) { day(k).skip.push(ds.rno); save(); render(); return; }
   if (ds.unskip) { const d = day(k); d.skip = d.skip.filter(x => x !== ds.unskip); save(); render(); return; }
   if (ds.water) {
-    const d = day(k); d.water = Math.max(0, (d.water || 0) + (+ds.water) * (S.profile.glass || 250));
+    const d = day(k); d.water = Math.max(0, (d.water || 0) + (+ds.water) * glassMl());
     save(); render(); return;
   }
   if (ds.editact) return actSheet(k, ds.editact);
@@ -577,7 +595,7 @@ function mealSheet(k, mealId) {
     `<button class="btn" data-close>${t('Откажи')}</button><button class="btn primary" id="msave">${t('Сачувај')}</button>`);
   const draw = () => {
     $('#slots', sh).innerHTML = L(SLOTS.map(s => `<button class="chip ${s === draft.slot ? 'on' : ''}" data-slot="${esc(s)}">${esc(t(s))}</button>`).join(''));
-    const tk = draft.items.reduce((s, i) => s + i.kcal, 0), tp = draft.items.reduce((s, i) => s + i.p, 0);
+    const { kcal: tk, p: tp } = sumItems(draft.items);
     $('#mitems', sh).innerHTML = L((draft.items.length ? draft.items.map((it, i) => `<div class="item"><button class="grow" style="text-align:left" data-edit="${i}"><b>${esc(itemName(it))}</b>
       <span class="num">${esc(itemLine(it))} · ${fmt(it.kcal)} kcal · ${fmt(it.p, 1)} ${PA()}</span></button><button class="x" data-rm="${i}" aria-label="${t('Уклони')}">×</button></div>`).join('')
       : `<div class="empty">${t('Још нема намирница у оброку.')}</div>`) +
@@ -656,8 +674,7 @@ function pickFood(opts, cb) {
       if (opts.meals) {
         const rm = recentMeals();
         if (rm.length) h += `<div class="gh">${t('Понови оброк')}</div>` + rm.map(({ m }, i) => {
-          const tk = m.items.reduce((s, x) => s + x.kcal, 0);
-          return `<button class="res" data-rmeal="${i}"><div class="grow"><b>${esc(t(m.slot))}</b><span>${esc(m.items.map(itemName).join(', '))}</span></div><div class="end num">${fmt(tk)} kcal</div></button>`;
+          return `<button class="res" data-rmeal="${i}"><div class="grow"><b>${esc(t(m.slot))}</b><span>${esc(m.items.map(itemName).join(', '))}</span></div><div class="end num">${fmt(sumItems(m.items).kcal)} kcal</div></button>`;
         }).join('');
         draw.rm = rm;
       }
@@ -951,7 +968,7 @@ function recipeSheet(id, preItems) {
     ${ex ? `<button class="btn danger block" id="rdel" style="margin-top:6px">${t('Обриши рецепт')}</button>` : ''}`,
     `<button class="btn" data-close>${t('Откажи')}</button><button class="btn primary" id="rok">${t('Сачувај рецепт')}</button>`);
   const draw = () => {
-    const tk = r.items.reduce((s, i) => s + i.kcal, 0), tp = r.items.reduce((s, i) => s + i.p, 0);
+    const { kcal: tk, p: tp } = sumItems(r.items);
     $('#ri', sh).innerHTML = L((r.items.length ? r.items.map((it, i) => `<div class="item"><div class="grow"><b>${esc(itemName(it))}</b><span class="num">${esc(itemLine(it))} · ${fmt(it.kcal)} kcal · ${fmt(it.p, 1)} ${PA()}</span></div><button class="x" data-rm="${i}">×</button></div>`).join('')
       : `<div class="empty">${t('Додај састојке у грамима.')}</div>`) +
       (r.items.length ? `<div class="sumline"><span>${t('Цело јело')}</span><span class="num">${fmt(tk)} kcal · <span class="prot">${fmt(tp, 1)} g</span></span></div>` : ''));
@@ -965,7 +982,7 @@ function recipeSheet(id, preItems) {
     if (!r.name) return toast(t('Упиши назив рецепта'));
     if (!r.items.length) return toast(t('Додај бар један састојак'));
     const rawG = r.items.reduce((s, i) => s + (i.g || 0), 0);
-    const tk = r.items.reduce((s, i) => s + i.kcal, 0), tp = r.items.reduce((s, i) => s + i.p, 0);
+    const { kcal: tk, p: tp } = sumItems(r.items);
     r.cookedG = num($('#rc', sh).value) > 0 ? num($('#rc', sh).value) : null;
     r.portions = num($('#rp', sh).value) > 0 ? num($('#rp', sh).value) : 1;
     r.totalG = r.cookedG || rawG || 100;
@@ -1175,18 +1192,13 @@ $('#view').addEventListener('click', e => {
 
 function renderStats() {
   $('#topin').innerHTML = L(`<div class="topbar"><h1>${t('Статистика')}</h1></div>`);
+  for (const id in chartData) delete chartData[id];
   const N = ui.statN, end = todayKey(), keys = lastDays(end, N);
   const cs = keys.map(calc), logged = cs.filter(c => c.logged);
   const tg = target(), [pmin] = protRange();
   const sumBal = logged.reduce((s, c) => s + c.bal, 0);
-  const avg = (arr, f) => arr.length ? arr.reduce((s, c) => s + f(c), 0) / arr.length : null;
   const stepsDays = cs.filter(c => c.steps > 0);
-  let sched = 0, done = 0;
-  for (const c of cs) for (const r of routinesOn(c.k)) {
-    if (c.k === end && routineState(c.k, r) === 'pending') continue;
-    if (!c.logged && !(c.d.acts || []).length) continue;
-    sched++; if (routineState(c.k, r) === 'done') done++;
-  }
+  const { sched, done } = routineTally(cs);
   const streak = pred => { let n = 0, k = end; if (!pred(calc(k))) k = addDays(k, -1); while (pred(calc(k))) { n++; k = addDays(k, -1); if (n > 3650) break; } return n; };
   const sLog = streak(c => c.logged), sTar = streak(inTarget), sProt = streak(c => c.logged && c.p >= pmin);
 
@@ -1266,15 +1278,10 @@ function weekReportCard(mon, onToday) {
   const bal = logged.reduce((s, c) => s + c.bal, 0);
   const protDays = logged.filter(c => c.p >= pmin).length;
   const inT = logged.filter(inTarget).length;
-  let sched = 0, done = 0;
-  // Као у статистици: рачунају се само дани које је водила (иначе би празни дани изгледали као пропуштени тренинзи).
-  for (const c of cs) {
-    if (!c.logged && !(c.d.acts || []).length) continue;
-    for (const r of routinesOn(c.k)) { sched++; if (routineState(c.k, r) === 'done') done++; }
-  }
+  const { sched, done } = routineTally(cs);
   const heavy = cs.reduce((n, c) => n + (c.d.acts || []).filter(a => a.met >= 5).length, 0);
-  const stepDays = cs.filter(c => c.steps > 0), avgSteps = stepDays.length ? stepDays.reduce((s, c) => s + c.steps, 0) / stepDays.length : 0;
-  const sleepDays = cs.filter(c => c.d.sleep), avgSleep = sleepDays.length ? sleepDays.reduce((s, c) => s + c.d.sleep, 0) / sleepDays.length : 0;
+  const stepDays = cs.filter(c => c.steps > 0), avgSteps = avg(stepDays, c => c.steps) || 0;
+  const sleepDays = cs.filter(c => c.d.sleep), avgSleep = avg(sleepDays, c => c.d.sleep) || 0;
   const best = logged.filter(c => inTarget(c) && c.p >= pmin).sort((a, b) => a.bal - b.bal)[0] || logged.slice().sort((a, b) => a.bal - b.bal)[0];
   // Један савет: оно што је те недеље било најслабије.
   let tip;
@@ -1429,7 +1436,6 @@ function stepsCard() {
     const at = S.settings.stepsSyncedAt ? new Date(S.settings.stepsSyncedAt) : null;
     body = `<div class="small" style="margin-bottom:10px"><span class="pos">✓ ${t('Повезано')}</span> <span class="muted">· ${at ? t('учитано {a}', { a: pad2(at.getHours()) + ':' + pad2(at.getMinutes()) }) : ''}</span></div>
       <div class="muted small" style="margin-bottom:10px">${t('Кораци се учитавају сами кад отвориш апликацију. Ако неки дан упишеш ручно, важи твој број.')}</div>
-      ${stepsSources()}
       ${stepsWeekTable()}
       ${window.FitAndroid.sleepStatus && window.FitAndroid.sleepStatus() === 'available' ? `<div class="muted small" style="margin-bottom:10px">😴 ${t('Апликација може да чита и сан. Тапни „Учитај сада“ и дозволи „Сан“.')}</div>` : ''}
       <button class="btn block" data-s="steps">${t('Учитај сада')}</button>`;
@@ -1447,13 +1453,6 @@ const SOURCE_NAMES = {
   'com.huawei.health': 'Huawei Health'
 };
 const sourceName = pkg => SOURCE_NAMES[pkg] || (pkg === 'com.google.android.gms' ? 'Google Play services' : /^(android|com\.android)/.test(pkg) ? t('телефон') : pkg);
-/** Данашњи кораци по изворима (ако их има више), да се види одакле стиже број. */
-function stepsSources() {
-  const d = peek(todayKey());
-  const by = d && d.stepsBy ? Object.entries(d.stepsBy) : [];
-  if (!by.length) return '';
-  return `<div class="muted small" style="margin-bottom:10px">${t('Данас по изворима:')} ${by.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(sourceName(k))} <b class="num">${fmt(v)}</b>`).join(' · ')}</div>`;
-}
 /** Кораци последњих 7 дана, да може да упореди са апликацијом која их броји. */
 function stepsWeekTable() {
   const ks = lastDays(todayKey(), 7).reverse();
@@ -1648,7 +1647,6 @@ window.onSteps = (data, err) => {
       : t('Кораци нису учитани. Покушај поново.'));
     return;
   }
-  let n = 0;
   for (const [k, raw] of Object.entries(data || {})) {
     // Нова верзија шаље {t: збир Health Connect-а, by: {извор: кораци}}; узима се највећи број,
     // јер Health Connect понекад изабере извор који је избројао мање (извори се не сабирају).
@@ -1659,7 +1657,7 @@ window.onSteps = (data, err) => {
     if (Object.keys(by).length) d.stepsBy = by; else delete d.stepsBy;
     // Број који је она сама уписала се не мења.
     if (d.stepsSrc === 'manual' && d.steps) continue;
-    if (d.steps !== v) { d.steps = v; n++; }
+    d.steps = v;
     d.stepsSrc = 'hc';
   }
   S.settings.autoSteps = true;
@@ -1703,14 +1701,14 @@ function pushWidget() {
     big: (rem < 0 ? '+' + fmt(-rem) : fmt(rem)) + ' kcal',
     label: L(rem < 0 ? t('преко циља данас') : t('остало данас')),
     sub: L(t('Протеин {a} / {b} g', { a: fmt(c.p), b: pmin })),
-    waterLabel: '', waterMl: Math.round(c.water), waterGoal: S.profile.water || 2250, glass: S.profile.glass || 250
+    waterLabel: '', waterMl: Math.round(c.water), waterGoal: waterGoal(), glass: glassMl()
   }));
 }
 /** Чаше воде додате из виџета док апликација није била отворена. */
 function takeWidgetWater() {
   if (!NATIVE || !window.FitAndroid.takeWidgetWater) return;
   const n = window.FitAndroid.takeWidgetWater();
-  if (n > 0) { const d = day(todayKey()); d.water = (d.water || 0) + n * (S.profile.glass || 250); save(); render(); }
+  if (n > 0) { const d = day(todayKey()); d.water = (d.water || 0) + n * glassMl(); save(); render(); }
 }
 
 /* ================= старт ================= */

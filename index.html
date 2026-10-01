@@ -90,14 +90,12 @@ h1,h2,h3{margin:0;font-weight:750;letter-spacing:-.01em}
 .balance{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .bigval{font-size:30px;font-weight:800;line-height:1}
 .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:650;background:var(--surface2);color:var(--muted)}
-.pill.pos{background:var(--pos-soft);color:var(--pos)} .pill.warn{background:var(--warn-soft);color:var(--warn)}
 .breakdown{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .weekline{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:14px}
 
 .tip{display:flex;gap:12px;align-items:flex-start;background:var(--accent-soft);border-radius:18px;padding:14px 16px;margin:12px 0}
 .tip .em{font-size:22px;line-height:1.2}
 .tip p{margin:0;font-size:15px}
-.tip p + p{margin-top:6px}
 
 .routine{display:flex;flex-direction:column;gap:10px;border:1.5px dashed var(--line);border-radius:18px;padding:14px;margin:10px 0}
 .routine .rt{display:flex;justify-content:space-between;gap:8px;align-items:center}
@@ -131,7 +129,6 @@ h1,h2,h3{margin:0;font-weight:750;letter-spacing:-.01em}
 .row .grow b{display:block;font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .grow span{font-size:13px;color:var(--muted)}
 .row .end{text-align:right;font-size:14px;white-space:nowrap}
-.row .end small{display:block;color:var(--muted);font-size:12px}
 .badge{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:6px;background:var(--surface2);color:var(--muted);margin-left:6px;vertical-align:2px;text-transform:uppercase;letter-spacing:.03em}
 
 .moods{display:flex;justify-content:space-between;gap:6px}
@@ -156,9 +153,6 @@ label.f{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{padding:8px 12px;border-radius:99px;background:var(--surface2);font-size:14px;font-weight:600;color:var(--muted)}
 .chip.on{background:var(--accent);color:var(--accent-ink)}
-.chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
-.chips.scroll::-webkit-scrollbar{display:none}
-.chips.scroll .chip{flex:none}
 
 /* tabs */
 #tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
